@@ -57,7 +57,7 @@ export async function mountAuthorizationServer(
     const q = request.query as Record<string,string|undefined>;
     try {
       await validateRequest(q);
-      return reply.redirect('/auth/google/start?oauth=' + encodeURIComponent(encodeOAuth(q)));
+      return reply.header('Cache-Control', 'no-store').redirect('/auth/google/start?oauth=' + encodeURIComponent(encodeOAuth(q)));
     } catch {
       return sendHtml(reply, page('Invalid request','<h1>Invalid authorization request</h1>'), [], 400);
     }
