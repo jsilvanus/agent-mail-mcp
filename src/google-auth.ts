@@ -173,7 +173,7 @@ export class GoogleAuthService {
         });
         if (!tokenResponse.ok) throw new Error('Google code exchange failed.');
         const tokens = await tokenResponse.json() as TokenResponse;
-        if (!tokens.id_token || !tokens.refresh_token || (tokens.scope && !tokens.scope.split(' ').includes('https://www.googleapis.com/auth/gmail.readonly'))) throw new Error('Google did not return the required identity and offline Gmail read-only authorization.');
+        if (!tokens.id_token || !tokens.refresh_token || (!tokens.scope || !tokens.scope.split(' ').includes('https://www.googleapis.com/auth/gmail.readonly'))) throw new Error('Google did not return the required identity and offline Gmail read-only authorization.');
         const { payload } = await jwtVerify(tokens.id_token, GOOGLE_JWKS, { audience: clientId, issuer: GOOGLE_ISSUERS });
         if (payload.nonce !== transaction.nonce || typeof payload.sub !== 'string' || typeof payload.email !== 'string' || payload.email_verified !== true) {
           throw new Error('Google identity verification failed.');
