@@ -1,14 +1,18 @@
-import { hash } from '@node-rs/argon2';
 import { buildApp } from './app.js';
 import { loadGdprConfig } from './gdpr.js';
 import { validateRecipientSecret } from './recipient-hmac.js';
 import { SqliteAuthStore, SqliteUserStore } from './storage/sqlite.js';
 import { SqliteUsageMetrics } from './storage/usage-metrics.js';
+import { GoogleAuthService } from './google-auth.js';
 
 const port = Number(process.env.PORT ?? '5999');
 const publicUrl = process.env.MCP_PUBLIC_URL ?? ('http://localhost:' + port);
 const secretText = process.env.JWT_SECRET;
-const defaultUserPassword = process.env.MCP_DEFAULT_USER_PASSWORD;
+const googleClientId = process.env.GOOGLE_CLIENT_ID;
+const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+const googleRedirectUri = process.env.GOOGLE_REDIRECT_URI ?? (publicUrl + '/auth/google/callback');
+const googleEncryptionKeyText = process.env.GOOGLE_TOKEN_ENCRYPTION_KEY;
+const identityHmacSecret = process.env.IDENTITY_HMAC_SECRET;
 const metricsSecretText = process.env.METRICS_HMAC_SECRET;
 const metricsAdminToken = process.env.METRICS_ADMIN_TOKEN;
 const gdpr = loadGdprConfig();
@@ -16,7 +20,10 @@ validateRecipientSecret();
 
 if (!Number.isInteger(port) || port <= 0) throw new Error('Invalid PORT: ' + process.env.PORT);
 if (!secretText) throw new Error('JWT_SECRET is required');
-if (!defaultUserPassword) throw new Error('MCP_DEFAULT_USER_PASSWORD is required');
+if (!googleClientId || !googleClientSecret) throw new Error('GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are required.');
+if (!googleEncryptionKeyText || Buffer.from(googleEncryptionKeyText, 'base64').length !== 32) throw new Error('GOOGLE_TOKEN_ENCRYPTION_KEY must be a base64-encoded 32-byte key.');
+if (!identityHmacSecret || Buffer.byteLength(identityHmacSecret, 'utf8') < 32) throw new Error('IDENTITY_HMAC_SECRET must contain at least 32 UTF-8 bytes.');
+if (googleRedirectUri !== publicUrl + '/auth/google/callback') throw new Error('GOOGLE_REDIRECT_URI must exactly equal MCP_PUBLIC_URL + /auth/google/callback.');
 if (metricsSecretText && Buffer.byteLength(metricsSecretText, 'utf8') < 32) throw new Error('METRICS_HMAC_SECRET must contain at least 32 UTF-8 bytes.');
 if (metricsAdminToken && metricsAdminToken.length < 32) throw new Error('METRICS_ADMIN_TOKEN must contain at least 32 characters.');
 
@@ -26,6 +33,18 @@ if (secret.length < 32) throw new Error('JWT_SECRET must decode to at least 32 b
 const storagePath = process.env.STORAGE_PATH ?? './data/app.sqlite';
 const store = new SqliteAuthStore(storagePath);
 const users = new SqliteUserStore(store.getDatabase());
+// Remove legacy password/email accounts during the Google-only migration, including their MCP sessions.
+const db = store.getDatabase();
+const legacyAccounts = db.prepare("SELECT COUNT(*) AS count FROM users WHERE email IS NOT NULL OR password_hash IS NOT NULL").get() as { count: number };
+if (legacyAccounts.count > 0) {
+  db.exec('PRAGMA secure_delete = ON');
+  db.exec("DELETE FROM authorization_codes WHERE subject IN (SELECT id FROM users WHERE email IS NOT NULL OR password_hash IS NOT NULL)");
+  db.exec("DELETE FROM refresh_tokens WHERE subject IN (SELECT id FROM users WHERE email IS NOT NULL OR password_hash IS NOT NULL)");
+  const credentialsTable = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'google_credentials'").get();
+  if (credentialsTable) db.exec("DELETE FROM google_credentials WHERE user_id IN (SELECT id FROM users WHERE email IS NOT NULL OR password_hash IS NOT NULL)");
+  db.exec("DELETE FROM users WHERE email IS NOT NULL OR password_hash IS NOT NULL");
+  db.exec('VACUUM');
+}
 const metrics = metricsSecretText ? new SqliteUsageMetrics(store.getDatabase(), Buffer.from(metricsSecretText, 'utf8')) : undefined;
 users.pruneInactiveUsers();
 const userPruneTimer = setInterval(() => {
@@ -33,19 +52,18 @@ const userPruneTimer = setInterval(() => {
   catch { console.error('Failed to prune inactive user records.'); }
 }, 60 * 60 * 1000);
 userPruneTimer.unref();
-const defaultUserId = process.env.MCP_DEFAULT_USER_ID ?? 'demo-user';
-const defaultUserEmail = process.env.MCP_DEFAULT_USER_EMAIL ?? 'demo@example.com';
-// Bootstrap the configured local user only once. Otherwise an expired/deleted user
-// would be recreated on every restart and the inactivity TTL would be ineffective.
-const db = store.getDatabase();
-db.exec('CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
-const bootstrap = db.prepare("SELECT value FROM app_settings WHERE key = 'default_user_bootstrap_done'").get() as { value: string } | undefined;
-if (!bootstrap) {
-  if (users.listUsers().length === 0 && !users.getUser(defaultUserId)) {
-    users.createUser({ id: defaultUserId, name: 'Agent Mail MCP Admin', email: defaultUserEmail, passwordHash: await hash(defaultUserPassword, { algorithm: 2 }), createdAt: Date.now() });
-  }
-  db.prepare("INSERT INTO app_settings (key, value) VALUES ('default_user_bootstrap_done', '1')").run();
-}
+const googleAuth = new GoogleAuthService({
+  publicUrl,
+  clientId: googleClientId,
+  clientSecret: googleClientSecret,
+  redirectUri: googleRedirectUri,
+  tokenEncryptionKey: Buffer.from(googleEncryptionKeyText, 'base64'),
+  identityHmacSecret: Buffer.from(identityHmacSecret, 'utf8'),
+  users,
+  authStore: store,
+}, store.getDatabase());
+const googleTokenPruneTimer = setInterval(() => googleAuth.pruneInMemoryTokens(), 60 * 60 * 1000);
+googleTokenPruneTimer.unref();
 
-const app = await buildApp({ publicUrl, jwtSecret: secret, store, users, gdpr, metrics, metricsAdminToken });
+const app = await buildApp({ publicUrl, jwtSecret: secret, store, users, gdpr, metrics, metricsAdminToken, googleAuth });
 await app.listen({ host: process.env.HOST ?? '0.0.0.0', port });

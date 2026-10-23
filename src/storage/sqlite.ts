@@ -73,7 +73,8 @@ export class SqliteUserStore implements UserStore {
     const digest = user.email ? recipientDigest(agentAddressFromAccountEmail(user.email)) : user.agentRecipientHash;
     this.db.prepare('INSERT INTO users (id, name, email, password_hash, created_at, last_tool_call_at, agent_recipient_hash) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(user.id, user.name, user.email ?? null, user.passwordHash ?? null, user.createdAt, user.lastToolCallAt ?? null, digest ?? null);
-    this.db.prepare("UPDATE usage_totals SET value = value + 1 WHERE key = 'accounts_created'").run();
+    const metricsTable = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'usage_totals'").get();
+    if (metricsTable) this.db.prepare("UPDATE usage_totals SET value = value + 1 WHERE key = 'accounts_created'").run();
   }
 
   listUsers(): McpUser[] {
@@ -89,6 +90,11 @@ export class SqliteUserStore implements UserStore {
     return this.map(this.db.prepare('SELECT id, name, email, password_hash, created_at, last_tool_call_at, agent_recipient_hash FROM users WHERE lower(email) = lower(?)').get(email) as {id:string;name:string;email:string|null;password_hash:string|null;created_at:number;last_tool_call_at:number|null;agent_recipient_hash:string|null}|undefined);
   }
 
+  updateAgentRecipientHash(id: string, digest: string): McpUser | undefined {
+    this.db.prepare('UPDATE users SET agent_recipient_hash = ? WHERE id = ?').run(digest, id);
+    return this.getUser(id);
+  }
+
   updateUser(id: string, patch: {name?:string;email?:string;passwordHash?:string}): McpUser | undefined {
     const current = this.getUser(id);
     if (!current) return undefined;
@@ -100,7 +106,22 @@ export class SqliteUserStore implements UserStore {
   }
 
   deleteUser(id: string): boolean {
-    return this.db.prepare('DELETE FROM users WHERE id = ?').run(id).changes > 0;
+    const tableExists = (name: string) => Boolean(this.db.prepare(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?"
+    ).get(name));
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('DELETE FROM authorization_codes WHERE subject = ?').run(id);
+      this.db.prepare('DELETE FROM refresh_tokens WHERE subject = ?').run(id);
+      if (tableExists('gmail_metadata_cache')) this.db.prepare('DELETE FROM gmail_metadata_cache WHERE user_id = ?').run(id);
+      if (tableExists('google_credentials')) this.db.prepare('DELETE FROM google_credentials WHERE user_id = ?').run(id);
+      const deleted = this.db.prepare('DELETE FROM users WHERE id = ?').run(id).changes > 0;
+      this.db.exec('COMMIT');
+      return deleted;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   recordToolCall(id: string): boolean {
@@ -125,6 +146,9 @@ export class SqliteUserStore implements UserStore {
         this.db.prepare('DELETE FROM refresh_tokens WHERE subject = ?').run(id);
         if (tableExists('gmail_metadata_cache')) {
           this.db.prepare('DELETE FROM gmail_metadata_cache WHERE user_id = ?').run(id);
+        }
+        if (tableExists('google_credentials')) {
+          this.db.prepare('DELETE FROM google_credentials WHERE user_id = ?').run(id);
         }
         this.db.prepare('DELETE FROM users WHERE id = ?').run(id);
       }

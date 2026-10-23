@@ -5,6 +5,7 @@ import { GmailConnector } from './connector.js';
 import { mountGdprPage, type GdprConfig } from './gdpr.js';
 import { mountTermsPage } from './terms.js';
 import type { SqliteUsageMetrics } from './storage/usage-metrics.js';
+import type { GoogleAuthService } from './google-auth.js';
 import { mountMcpHttp } from './mcp/http.js';
 import { mountOAuthMetadata } from './oauth-metadata.js';
 import { mountAuthorizationServer, type AuthorizationServerOptions } from './oauth/authorization-server.js';
@@ -19,6 +20,7 @@ export interface AppOptions {
   authorization?: AuthorizationServerOptions;
   metrics?: SqliteUsageMetrics;
   metricsAdminToken?: string;
+  googleAuth?: GoogleAuthService;
   logger?: boolean;
 }
 
@@ -29,8 +31,9 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   await mountOAuthMetadata(app, options.publicUrl);
   await mountGdprPage(app, options.gdpr);
   await mountTermsPage(app);
+  if (options.googleAuth) await options.googleAuth.mount(app);
   await mountAuthorizationServer(app, options.publicUrl, resource, options.jwtSecret, options.store, options.users, options.authorization);
-  await mountMcpHttp(app, { connector: new GmailConnector(options.metrics), users: options.users, metrics: options.metrics, publicUrl: options.publicUrl, jwtSecret: options.jwtSecret, resource });
+  await mountMcpHttp(app, { connector: new GmailConnector(options.metrics, options.googleAuth ? (userId) => options.googleAuth!.accessTokenForUser(userId) : undefined), users: options.users, metrics: options.metrics, publicUrl: options.publicUrl, jwtSecret: options.jwtSecret, resource });
   if (options.metrics && options.metricsAdminToken) {
     app.get('/admin/metrics', async (request, reply) => {
       const supplied = request.headers['x-metrics-token'];

@@ -10,7 +10,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
-    "user": "tsx scripts/mcp-user.ts",
     "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {

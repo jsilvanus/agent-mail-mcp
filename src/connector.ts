@@ -47,11 +47,12 @@ function decodeBody(message: GmailMessage): string {
 }
 
 export class GmailConnector implements ApiConnector {
-  constructor(private readonly metrics?: SqliteUsageMetrics) {}
+  constructor(private readonly metrics?: SqliteUsageMetrics, private readonly perUserAccessToken?: (userId: string) => Promise<string>) {}
   private accessToken?: string;
   private accessTokenExpiresAt = 0;
 
-  private async token(): Promise<string> {
+  private async token(userId?: string): Promise<string> {
+    if (userId && this.perUserAccessToken) return this.perUserAccessToken(userId);
     const staticToken = process.env.GMAIL_ACCESS_TOKEN;
     if (staticToken) return staticToken;
     const clientId = process.env.GMAIL_CLIENT_ID;
@@ -83,7 +84,7 @@ export class GmailConnector implements ApiConnector {
     const url = new URL(API + path);
     if (params) url.search = params.toString();
     const response = await fetch(url, {
-      headers: { authorization: "Bearer " + await this.token(), accept: "application/json" },
+      headers: { authorization: "Bearer " + await this.token(userId), accept: "application/json" },
       signal: AbortSignal.timeout(20_000),
     });
     if (!response.ok) {
