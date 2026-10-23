@@ -30,8 +30,8 @@ describe('GDPR privacy page', () => {
     assert.match(response.headers['content-type'] ?? '', /text\/html/);
     assert.match(response.body, /Example Controller/);
     assert.match(response.body, /privacy@example\.test/);
-    assert.match(response.body, /Request deletion of my data/);
-    assert.match(response.body, /does not automatically delete data/);
+    assert.match(response.body, /does not provide automated Google-verified account deletion/);
+    assert.match(response.body, /\/terms/);
     await app.close();
   });
 });
