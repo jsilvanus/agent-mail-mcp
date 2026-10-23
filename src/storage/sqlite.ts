@@ -126,6 +126,9 @@ export class SqliteUserStore implements UserStore {
         if (tableExists('gmail_metadata_cache')) {
           this.db.prepare('DELETE FROM gmail_metadata_cache WHERE user_id = ?').run(id);
         }
+        if (tableExists('google_credentials')) {
+          this.db.prepare('DELETE FROM google_credentials WHERE user_id = ?').run(id);
+        }
         this.db.prepare('DELETE FROM users WHERE id = ?').run(id);
       }
       this.db.exec('COMMIT');
