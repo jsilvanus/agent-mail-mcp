@@ -20,6 +20,7 @@ const store = new SqliteAuthStore(storagePath);
 const users = new SqliteUserStore(store.getDatabase());
 const metadataCache = new SqliteMetadataCache(store.getDatabase(), secret);
 metadataCache.pruneExpired();
+users.pruneInactiveUsers();
 const defaultUserId = process.env.MCP_DEFAULT_USER_ID ?? 'demo-user';
 const defaultUserEmail = process.env.MCP_DEFAULT_USER_EMAIL ?? 'demo@example.com';
 if (!users.getUser(defaultUserId)) {
