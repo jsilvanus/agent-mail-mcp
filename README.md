@@ -7,7 +7,7 @@ Built from the `jsilvanus/codestash` `mcp/api-connector-style/` template. It kee
 ## Tools
 
 ### `agent_inbox_list`
-Lists a Gmail API page and returns only messages whose recipient headers contain an exact `username+agent@gmail.com` address. Fields: `id`, `time`, `sender`, `subject`. Pass `nextPageToken` back as `pageToken` to continue through the mailbox. The connector inspects message metadata and does not fetch bodies for listing.
+Lists a Gmail API page and returns only messages whose recipient headers contain an exact `username+agent@gmail.com` address. Fields: `id`, `time`, `sender`, `subject`, `spamStatus`, and `spamHints`. `spamStatus` indicates whether Gmail currently applies its `SPAM` system label (`marked_spam` or `not_marked_spam`); `spamHints` includes all Gmail labels and any spam-related headers present in the message. Gmail does not guarantee those headers or expose a numeric spam score through this API, so treat them as hints rather than a definitive verdict. Pass `nextPageToken` back as `pageToken` to continue through the mailbox. The connector inspects message metadata and does not fetch bodies for listing.
 
 ### `agent_inbox_message`
 Input: `messageId` from the listing. Returns message metadata and decoded text body only after checking the message's recipient headers for the exact `+agent@gmail.com` convention. Arbitrary message IDs cannot be used to read unrelated mail.
