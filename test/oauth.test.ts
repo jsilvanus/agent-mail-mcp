@@ -145,8 +145,8 @@ describe('OAuth authorization flow', () => {
     const list = await mcp(tokens.access_token, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
     assert.equal(list.status, 200);
     const names = list.message.result.tools.map((t: { name: string }) => t.name);
-    assert.ok(names.includes('api_search'));
-    assert.ok(names.includes('api_get'));
+    assert.ok(names.includes('agent_inbox_list'));
+    assert.ok(names.includes('agent_inbox_message'));
   });
 
   it('redirects with access_denied when the user denies', async () => {
