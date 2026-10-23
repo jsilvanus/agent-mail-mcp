@@ -30,7 +30,7 @@ const agentMessage: MockMessage = {
       { name: 'To', value: 'A User <someone+agent@gmail.com>' },
       { name: 'From', value: 'sender@example.net' },
       { name: 'Subject', value: 'Agent task' },
-      { name: 'Date', value: 'Wed, 22 Oct 2026 12:00:00 +0000' },
+      { name: 'Date', value: 'Thu, 22 Oct 2026 12:00:00 +0000' },
     ],
     body: { data: Buffer.from('Hello agent').toString('base64url') },
   },
