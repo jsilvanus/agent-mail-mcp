@@ -6,7 +6,6 @@ export interface GdprConfig {
   controllerEmail: string;
   privacyContactEmail: string;
   hostingCountry: string;
-  aiDestination: string;
   purposes: string;
   lawfulBasis: string;
   retention: string;
@@ -22,7 +21,6 @@ const REQUIRED_ENV: Array<[keyof Omit<GdprConfig, 'dpoContact'>, string]> = [
   ['controllerEmail', 'GDPR_CONTROLLER_EMAIL'],
   ['privacyContactEmail', 'GDPR_PRIVACY_CONTACT_EMAIL'],
   ['hostingCountry', 'SERVICE_HOSTING_COUNTRY'],
-  ['aiDestination', 'AI_SERVICE_DESTINATION_COUNTRY'],
   ['purposes', 'GDPR_PURPOSES'],
   ['lawfulBasis', 'GDPR_LAWFUL_BASIS'],
   ['retention', 'GDPR_RETENTION'],
@@ -70,7 +68,7 @@ export async function mountGdprPage(app: FastifyInstance, config: GdprConfig): P
       '<li><strong>Message retrieval:</strong> when the authorised AI client requests a message, the service fetches the body from Gmail, verifies the recipient again, and returns the content to that MCP client. The AI provider may process or retain the returned content under its own terms and settings.</li>' +
       '<li><strong>Account and authorisation records:</strong> the service stores a pseudonymous internal account identifier, the recipient HMAC digest, encrypted Google refresh-token material, creation/activity timestamps, MCP authorisation codes, and MCP refresh tokens. Short-lived codes are consumed at exchange. Access tokens and message content should not be written to application logs.</li>' +
       '<li><strong>Operational data:</strong> the host, reverse proxy, and monitoring/logging configuration may process IP addresses, request paths, timestamps, and error details. Their actual retention depends on deployment configuration.</li>' +
-      '</ol><p>Data travels from Google/Gmail infrastructure, which may process data in multiple countries, through this service hosted in <strong>' + escapeHtml(config.hostingCountry) + '</strong>, to the AI service selected by the user, whose processing destination is configured as <strong>' + escapeHtml(config.aiDestination) + '</strong>. The user’s AI provider can receive personal data contained in email headers and bodies. This is an intentional consequence of requesting email routing to that AI service.</p>' +
+      '</ol><p>Data travels from Google/Gmail infrastructure, which may process data in multiple countries, through this service hosted in <strong>' + escapeHtml(config.hostingCountry) + '</strong>, to the AI service selected and configured by the user. The destination country is therefore user- and provider-dependent, not a single deployment setting; it may not be visible to this service. The user’s AI provider can receive personal data contained in email headers and bodies. Users should check their chosen AI provider’s processing locations, retention settings, and terms before enabling this routing.</p>' +
       '<h2>4. Recipients and providers</h2>' + paragraphs(config.recipients) +
       '<h2>5. International transfers</h2>' + paragraphs(config.internationalTransfers) +
       '<p>Google, the hosting provider, and the configured AI service may process data outside the European Economic Area. The applicable transfer mechanism and safeguards depend on the providers, their locations, and the user’s configuration; the controller must verify and document these for the deployment. This notice does not claim that a particular transfer safeguard applies unless the controller has confirmed it.</p>' +
