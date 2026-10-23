@@ -21,6 +21,11 @@ const users = new SqliteUserStore(store.getDatabase());
 const metadataCache = new SqliteMetadataCache(store.getDatabase(), secret);
 metadataCache.pruneExpired();
 users.pruneInactiveUsers();
+const userPruneTimer = setInterval(() => {
+  try { users.pruneInactiveUsers(); }
+  catch { console.error('Failed to prune inactive user records.'); }
+}, 60 * 60 * 1000);
+userPruneTimer.unref();
 const defaultUserId = process.env.MCP_DEFAULT_USER_ID ?? 'demo-user';
 const defaultUserEmail = process.env.MCP_DEFAULT_USER_EMAIL ?? 'demo@example.com';
 // Bootstrap the configured local user only once. Otherwise an expired/deleted user
