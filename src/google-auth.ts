@@ -181,6 +181,7 @@ export class GoogleAuthService {
           throw new Error('Google identity verification failed.');
         }
         const email = payload.email;
+        if (!email.toLowerCase().endsWith('@gmail.com')) throw new Error('Sign in with the Google account for the Gmail mailbox whose username is used for the +agent address.');
         const id = pseudonymousId(this.options.identityHmacSecret, typeof payload.iss === 'string' ? payload.iss : 'https://accounts.google.com', payload.sub);
         const digest = recipientDigest(agentAddressFromAccountEmail(email));
         let user = users.getUser(id);
