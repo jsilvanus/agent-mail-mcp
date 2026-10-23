@@ -5,14 +5,12 @@ import { mountMcpHttp } from './mcp/http.js';
 import { mountOAuthMetadata } from './oauth-metadata.js';
 import { mountAuthorizationServer, type AuthorizationServerOptions } from './oauth/authorization-server.js';
 import type { AuthStore, UserStore } from './storage/interface.js';
-import type { MetadataCache, GmailMetadata } from './storage/metadata-cache.js';
 
 export interface AppOptions {
   publicUrl: string;
   jwtSecret: Uint8Array;
   store: AuthStore;
   users: UserStore;
-  metadataCache?: MetadataCache<GmailMetadata>;
   authorization?: AuthorizationServerOptions;
   logger?: boolean;
 }
@@ -23,7 +21,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const resource = options.publicUrl + '/mcp';
   await mountOAuthMetadata(app, options.publicUrl);
   await mountAuthorizationServer(app, options.publicUrl, resource, options.jwtSecret, options.store, options.users, options.authorization);
-  await mountMcpHttp(app, { connector: new GmailConnector(options.metadataCache), users: options.users, publicUrl: options.publicUrl, jwtSecret: options.jwtSecret, resource });
+  await mountMcpHttp(app, { connector: new GmailConnector(), users: options.users, publicUrl: options.publicUrl, jwtSecret: options.jwtSecret, resource });
   app.get('/health', async () => ({ ok: true }));
   return app;
 }
