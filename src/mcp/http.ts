@@ -5,10 +5,12 @@ import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { createMcpServer } from './server.js';
 import type { ApiConnector } from '../connector.js';
+import type { UserStore } from '../storage/interface.js';
 import { verifyBearerToken } from '../auth.js';
 
 export interface McpHttpOptions {
   connector: ApiConnector;
+  users: UserStore;
   publicUrl: string;
   jwtSecret: Uint8Array; resource: string;
   /**
@@ -60,7 +62,7 @@ export async function mountMcpHttp(app: FastifyInstance, options: McpHttpOptions
       }
     }
 
-    const server = createMcpServer({ connector: options.connector, publicUrl: options.publicUrl });
+    const server = createMcpServer({ connector: options.connector, publicUrl: options.publicUrl, users: options.users });
     const transport = new StreamableHTTPServerTransport({});
     await server.connect(transport as unknown as Transport);
 
