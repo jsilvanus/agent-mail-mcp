@@ -5,9 +5,11 @@ export interface ApiConnector {
   get(id: string, context: ConnectorContext): Promise<unknown>;
 }
 
+import type { GmailMetadata, MetadataCache } from "./storage/metadata-cache.js";
+
 type GmailHeader = { name?: string; value?: string };
 type GmailPayload = { headers?: GmailHeader[]; mimeType?: string; body?: { data?: string }; parts?: GmailPayload[] };
-type GmailMessage = { id?: string; threadId?: string; internalDate?: string; snippet?: string; labelIds?: string[]; payload?: GmailPayload };
+type GmailMessage = GmailMetadata & { snippet?: string; payload?: GmailPayload };
 
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
 const AGENT_RECIPIENT = /^[a-z0-9.]+\+agent@gmail\.com$/i;
@@ -47,6 +49,8 @@ function decodeBody(message: GmailMessage): string {
 }
 
 export class GmailConnector implements ApiConnector {
+  constructor(private readonly metadataCache?: MetadataCache<GmailMetadata>) {}
+
   private accessToken?: string;
   private accessTokenExpiresAt = 0;
 
@@ -88,16 +92,30 @@ export class GmailConnector implements ApiConnector {
     return await response.json() as T;
   }
 
-  async search(request: SearchRequest, _context: ConnectorContext): Promise<unknown> {
+  async search(request: SearchRequest, context: ConnectorContext): Promise<unknown> {
     const limit = Math.min(100, Math.max(1, Math.trunc(request.pageSize ?? 50)));
     const params = new URLSearchParams({ maxResults: String(limit), q: "in:anywhere" });
     if (request.query) params.set("pageToken", request.query);
     params.set("includeSpamTrash", "true");
     const page = await this.api<{ messages?: Array<{ id: string }>; nextPageToken?: string; resultSizeEstimate?: number }>("/messages", params);
     const listed = await Promise.all((page.messages ?? []).map(async item => {
+      const cached = context.userId ? this.metadataCache?.get(context.userId, item.id) : undefined;
+      if (cached) return cached as GmailMessage;
+
       const metadataParams = new URLSearchParams({ format: "metadata" });
       for (const name of ["To", "Cc", "Bcc", "Delivered-To", "X-Original-To", "From", "Subject", "Date", "X-Spam-Status", "X-Spam-Flag", "X-Google-Spam", "X-Gm-Spam"]) metadataParams.append("metadataHeaders", name);
-      return await this.api<GmailMessage>("/messages/" + encodeURIComponent(item.id), metadataParams);
+      const message = await this.api<GmailMessage>("/messages/" + encodeURIComponent(item.id), metadataParams);
+      if (context.userId && this.metadataCache) {
+        // Cache only metadata returned by Gmail; never cache the full message body.
+        this.metadataCache.set(context.userId, item.id, {
+          id: message.id,
+          threadId: message.threadId,
+          internalDate: message.internalDate,
+          labelIds: message.labelIds ?? [],
+          payload: { headers: message.payload?.headers ?? [] },
+        });
+      }
+      return message;
     }));
     const matches = listed.filter(hasAgentRecipient).map(message => {
       const h = headers(message);
