@@ -7,7 +7,7 @@ export interface ApiConnector {
 
 type GmailHeader = { name?: string; value?: string };
 type GmailPayload = { headers?: GmailHeader[]; mimeType?: string; body?: { data?: string }; parts?: GmailPayload[] };
-type GmailMessage = GmailMetadata & { snippet?: string; payload?: GmailPayload };
+type GmailMessage = { id?: string; threadId?: string; internalDate?: string; labelIds?: string[]; snippet?: string; payload?: GmailPayload };
 
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
 const AGENT_RECIPIENT = /^[a-z0-9.]+\+agent@gmail\.com$/i;
