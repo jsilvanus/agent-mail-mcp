@@ -1,3 +1,5 @@
+import { recipientDigestMatches } from "./recipient-hmac.js";
+
 export interface ConnectorContext { accessToken?: string; userId?: string; agentRecipientHash?: string }
 export interface SearchRequest { query?: string; page?: number; pageSize?: number }
 export interface ApiConnector {
@@ -8,8 +10,6 @@ export interface ApiConnector {
 type GmailHeader = { name?: string; value?: string };
 type GmailPayload = { headers?: GmailHeader[]; mimeType?: string; body?: { data?: string }; parts?: GmailPayload[] };
 type GmailMessage = { id?: string; threadId?: string; internalDate?: string; labelIds?: string[]; snippet?: string; payload?: GmailPayload };
-
-import { recipientDigestMatches } from "./recipient-hmac.js";
 
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
 const AGENT_RECIPIENT = /^[a-z0-9.]+\+agent@gmail\.com$/i;
