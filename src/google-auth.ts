@@ -42,16 +42,18 @@ function randomId(): string { return randomBytes(32).toString('base64url'); }
 function pseudonymousId(secret: Buffer, issuer: string, sub: string): string {
   return createHmac('sha256', secret).update(issuer + '\0' + sub, 'utf8').digest('hex');
 }
-function encryptToken(key: Buffer, token: string): string {
+function encryptToken(key: Buffer, token: string, userId: string): string {
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
+  cipher.setAAD(Buffer.from(userId, 'utf8'));
   const ciphertext = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()]);
   return [iv.toString('base64url'), cipher.getAuthTag().toString('base64url'), ciphertext.toString('base64url')].join('.');
 }
-function decryptToken(key: Buffer, value: string): string {
+function decryptToken(key: Buffer, value: string, userId: string): string {
   const [iv, tag, ciphertext] = value.split('.');
   if (!iv || !tag || !ciphertext) throw new Error('Stored Google token has an invalid format.');
   const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64url'));
+  decipher.setAAD(Buffer.from(userId, 'utf8'));
   decipher.setAuthTag(Buffer.from(tag, 'base64url'));
   return Buffer.concat([decipher.update(Buffer.from(ciphertext, 'base64url')), decipher.final()]).toString('utf8');
 }
@@ -68,7 +70,7 @@ async function validateOAuth(q: OAuthQuery): Promise<boolean> {
 }
 
 export class GoogleAuthService {
-  private readonly db;
+  private readonly db: import('node:sqlite').DatabaseSync;
   private readonly accessTokens = new Map<string, { token: string; expires: number }>();
 
   constructor(private readonly options: GoogleAuthOptions, db: import('node:sqlite').DatabaseSync) {
@@ -80,7 +82,7 @@ export class GoogleAuthService {
 
   private saveCredential(userId: string, token: string): void {
     this.db.prepare('INSERT INTO google_credentials (user_id, refresh_token_encrypted, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET refresh_token_encrypted=excluded.refresh_token_encrypted, updated_at=excluded.updated_at')
-      .run(userId, encryptToken(this.options.tokenEncryptionKey, token), Date.now());
+      .run(userId, encryptToken(this.options.tokenEncryptionKey, token, userId), Date.now());
     this.accessTokens.delete(userId);
   }
 
@@ -105,7 +107,7 @@ export class GoogleAuthService {
     if (cached && cached.expires > Date.now() + 60_000) return cached.token;
     const row = this.db.prepare('SELECT refresh_token_encrypted FROM google_credentials WHERE user_id = ?').get(userId) as { refresh_token_encrypted: string } | undefined;
     if (!row) throw new Error('This account has no connected Gmail authorization. Sign in again and grant read-only Gmail access.');
-    const refreshToken = decryptToken(this.options.tokenEncryptionKey, row.refresh_token_encrypted);
+    const refreshToken = decryptToken(this.options.tokenEncryptionKey, row.refresh_token_encrypted, userId);
     const response = await fetch(GOOGLE_TOKEN, {
       method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ client_id: this.options.clientId, client_secret: this.options.clientSecret, refresh_token: refreshToken, grant_type: 'refresh_token' }),
