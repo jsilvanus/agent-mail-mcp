@@ -89,6 +89,13 @@ export class GoogleAuthService {
     this.accessTokens.delete(userId);
   }
 
+  pruneInMemoryTokens(): void {
+    const now = Date.now();
+    for (const [userId, value] of this.accessTokens) {
+      if (value.expires <= now || !this.options.users.getUser(userId)) this.accessTokens.delete(userId);
+    }
+  }
+
   async accessTokenForUser(userId: string): Promise<string> {
     if (!this.options.users.getUser(userId)) {
       this.deleteCredential(userId);
