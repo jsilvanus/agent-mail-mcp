@@ -10,7 +10,7 @@ type GmailPayload = { headers?: GmailHeader[]; mimeType?: string; body?: { data?
 type GmailMessage = { id?: string; threadId?: string; internalDate?: string; snippet?: string; labelIds?: string[]; payload?: GmailPayload };
 
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
-const AGENT_RECIPIENT = /^[a-z0-9.]+\\+agent@gmail\\.com$/i;
+const AGENT_RECIPIENT = /^[a-z0-9.]+\+agent@gmail\.com$/i;
 
 function headers(message: GmailMessage): Record<string, string> {
   const out: Record<string, string> = {};
