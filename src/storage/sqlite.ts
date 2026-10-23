@@ -16,6 +16,9 @@ export class SqliteAuthStore implements AuthStore {
     );
     try { this.db.exec('ALTER TABLE users ADD COLUMN password_hash TEXT'); } catch { /* already exists */ }
     try { this.db.exec('ALTER TABLE users ADD COLUMN last_tool_call_at INTEGER'); } catch { /* already exists */ }
+    // Remove encrypted headers persisted by older versions; current code never writes message headers to SQLite.
+    const legacyCache = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'gmail_metadata_cache'").get();
+    if (legacyCache) this.db.exec('DELETE FROM gmail_metadata_cache');
   }
 
   getDatabase(): DatabaseSync {
