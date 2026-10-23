@@ -1,4 +1,4 @@
-export interface ConnectorContext { accessToken?: string; userId?: string }
+export interface ConnectorContext { accessToken?: string; userId?: string; agentRecipientHash?: string }
 export interface SearchRequest { query?: string; page?: number; pageSize?: number }
 export interface ApiConnector {
   search(request: SearchRequest, context: ConnectorContext): Promise<unknown>;
@@ -19,18 +19,15 @@ function headers(message: GmailMessage): Record<string, string> {
   }
   return out;
 }
-function isAgentAddress(address: string): boolean {
-  return AGENT_RECIPIENT.test(address.trim().replace(/^<|>$/g, ""));
+function toAddresses(message: GmailMessage): string[] {
+  const value = headers(message).to ?? "";
+  return value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/gi) ?? [];
 }
-function hasAgentRecipient(message: GmailMessage): boolean {
-  const h = headers(message);
-  const fields = ["to", "cc", "bcc", "delivered-to", "x-original-to"];
-  for (const field of fields) {
-    const values = h[field] ?? "";
-    const addresses = values.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? [];
-    if (addresses.some(isAgentAddress)) return true;
-  }
-  return false;
+function hasAgentRecipient(message: GmailMessage, digest?: string): boolean {
+  if (!digest) return false;
+  return toAddresses(message).some(address =>
+    AGENT_RECIPIENT.test(address.trim()) && recipientDigestMatches(address, digest)
+  );
 }
 function decodeBody(message: GmailMessage): string {
   const payload = message.payload;
@@ -88,26 +85,51 @@ export class GmailConnector implements ApiConnector {
     return await response.json() as T;
   }
 
-  async search(request: SearchRequest, _context: ConnectorContext): Promise<unknown> {
+  private readonly discoveredAliases = new Map<string, { address: string; expiresAt: number }>();
+
+  private async discoverAlias(digest: string): Promise<string> {
+    const cached = this.discoveredAliases.get(digest);
+    if (cached && cached.expiresAt > Date.now()) return cached.address;
+    this.discoveredAliases.delete(digest);
+
+    // Inspect only To headers in small batches until a candidate hashes to this user's digest.
+    let pageToken: string | undefined;
+    do {
+      const params = new URLSearchParams({ maxResults: "5", q: "in:anywhere", includeSpamTrash: "true" });
+      if (pageToken) params.set("pageToken", pageToken);
+      const page = await this.api<{ messages?: Array<{ id: string }>; nextPageToken?: string }>("/messages", params);
+      const candidates = await Promise.all((page.messages ?? []).map(async item => {
+        const metadataParams = new URLSearchParams({ format: "metadata", metadataHeaders: "To" });
+        return this.api<GmailMessage>("/messages/" + encodeURIComponent(item.id), metadataParams);
+      }));
+      for (const candidate of candidates) {
+        for (const address of toAddresses(candidate)) {
+          if (AGENT_RECIPIENT.test(address.trim()) && recipientDigestMatches(address, digest)) {
+            this.discoveredAliases.set(digest, { address: address.trim(), expiresAt: Date.now() + 5 * 60_000 });
+            return address.trim();
+          }
+        }
+      }
+      pageToken = page.nextPageToken;
+    } while (pageToken);
+    throw new Error("Could not discover a matching +agent recipient in the mailbox.");
+  }
+
+  async search(request: SearchRequest, context: ConnectorContext): Promise<unknown> {
+    if (!context.agentRecipientHash) throw new Error("No +agent recipient digest is configured for this user.");
+    const alias = await this.discoverAlias(context.agentRecipientHash);
     const limit = Math.min(100, Math.max(1, Math.trunc(request.pageSize ?? 50)));
-    const params = new URLSearchParams({ maxResults: String(limit), q: "in:anywhere" });
+    const params = new URLSearchParams({ maxResults: String(limit), q: "in:anywhere to:" + alias, includeSpamTrash: "true" });
     if (request.query) params.set("pageToken", request.query);
-    params.set("includeSpamTrash", "true");
     const page = await this.api<{ messages?: Array<{ id: string }>; nextPageToken?: string; resultSizeEstimate?: number }>("/messages", params);
     const listed = await Promise.all((page.messages ?? []).map(async item => {
-      // Recipient headers are inspected fresh and only in memory. Never persist
-      // addresses, sender names, subjects, or other potentially identifying headers.
       const metadataParams = new URLSearchParams({ format: "metadata" });
-      for (const name of ["To", "Cc", "Bcc", "Delivered-To", "X-Original-To", "From", "Subject", "Date", "X-Spam-Status", "X-Spam-Flag", "X-Google-Spam", "X-Gm-Spam"]) metadataParams.append("metadataHeaders", name);
-      const message = await this.api<GmailMessage>("/messages/" + encodeURIComponent(item.id), metadataParams);
-      return message;
+      for (const name of ["To", "From", "Subject", "Date", "X-Spam-Status", "X-Spam-Flag", "X-Google-Spam", "X-Gm-Spam"]) metadataParams.append("metadataHeaders", name);
+      return this.api<GmailMessage>("/messages/" + encodeURIComponent(item.id), metadataParams);
     }));
-    const matches = listed.filter(hasAgentRecipient).map(message => {
+    const matches = listed.filter(message => hasAgentRecipient(message, context.agentRecipientHash)).map(message => {
       const h = headers(message);
       const gmailLabels = message.labelIds ?? [];
-      // Gmail exposes its actual spam-folder classification as the SPAM system label.
-      // Extra spam-related headers are included only when present; Gmail does not guarantee
-      // these headers or expose a numeric spam score through this API.
       const spamHeaders = Object.entries(h)
         .filter(([name]) => /^(x-spam-|x-google-spam$|x-gm-spam$)/i.test(name))
         .map(([name, value]) => ({ name, value }));
@@ -117,25 +139,22 @@ export class GmailConnector implements ApiConnector {
         sender: h.from ?? "",
         subject: h.subject ?? "(no subject)",
         spamStatus: gmailLabels.includes("SPAM") ? "marked_spam" : "not_marked_spam",
-        spamHints: {
-          gmailSpamLabel: gmailLabels.includes("SPAM"),
-          gmailLabels,
-          headers: spamHeaders,
-        },
+        spamHints: { gmailSpamLabel: gmailLabels.includes("SPAM"), gmailLabels, headers: spamHeaders },
       };
     });
     return {
       messages: matches,
       nextPageToken: page.nextPageToken ?? null,
       resultSizeEstimate: page.resultSizeEstimate ?? null,
-      note: "Only messages with an exact username+agent@gmail.com recipient are returned. Follow nextPageToken to scan older mail.",
+      note: "Only messages whose To header matches this user's stored +agent HMAC digest are returned. Pass nextPageToken to continue.",
     };
   }
 
-  async get(id: string, _context: ConnectorContext): Promise<unknown> {
+  async get(id: string, context: ConnectorContext): Promise<unknown> {
     if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error("Invalid Gmail message ID.");
+    if (!context.agentRecipientHash) throw new Error("No +agent recipient digest is configured for this user.");
     const message = await this.api<GmailMessage>("/messages/" + encodeURIComponent(id), new URLSearchParams({ format: "full" }));
-    if (!hasAgentRecipient(message)) throw new Error("Message not found in the +agent inbox.");
+    if (!hasAgentRecipient(message, context.agentRecipientHash)) throw new Error("Message not found in the +agent inbox.");
     const h = headers(message);
     return {
       id: message.id,
@@ -143,7 +162,6 @@ export class GmailConnector implements ApiConnector {
       sender: h.from ?? "",
       subject: h.subject ?? "(no subject)",
       to: h.to ?? "",
-      cc: h.cc ?? "",
       body: decodeBody(message),
       snippet: message.snippet ?? "",
     };
