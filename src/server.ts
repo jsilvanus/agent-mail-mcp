@@ -1,11 +1,13 @@
 import { hash } from '@node-rs/argon2';
 import { buildApp } from './app.js';
+import { loadGdprConfig } from './gdpr.js';
 import { SqliteAuthStore, SqliteUserStore } from './storage/sqlite.js';
 
 const port = Number(process.env.PORT ?? '5999');
 const publicUrl = process.env.MCP_PUBLIC_URL ?? ('http://localhost:' + port);
 const secretText = process.env.JWT_SECRET;
 const defaultUserPassword = process.env.MCP_DEFAULT_USER_PASSWORD;
+const gdpr = loadGdprConfig();
 
 if (!Number.isInteger(port) || port <= 0) throw new Error('Invalid PORT: ' + process.env.PORT);
 if (!secretText) throw new Error('JWT_SECRET is required');
@@ -37,5 +39,5 @@ if (!bootstrap) {
   db.prepare("INSERT INTO app_settings (key, value) VALUES ('default_user_bootstrap_done', '1')").run();
 }
 
-const app = await buildApp({ publicUrl, jwtSecret: secret, store, users });
+const app = await buildApp({ publicUrl, jwtSecret: secret, store, users, gdpr });
 await app.listen({ host: process.env.HOST ?? '0.0.0.0', port });
