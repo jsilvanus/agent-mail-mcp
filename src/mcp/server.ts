@@ -17,7 +17,7 @@ function authError(publicUrl: string): CallToolResult {
   return { content: [{ type: 'text', text: 'Authentication required.' }], isError: true, _meta: { 'mcp/www_authenticate': ['Bearer resource_metadata="' + publicUrl + '/.well-known/oauth-protected-resource/mcp", scope="mcp", error="insufficient_scope", error_description="Sign in to use this tool."'] } };
 }
 function errorResult(error: unknown): CallToolResult { return { content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }], isError: true }; }
-function expiredUserResult(): CallToolResult { return { content: [{ type: 'text', text: 'Your account expired after 15 days without a tool call. Sign in again.' }], isError: true }; }
+function expiredUserResult(): CallToolResult { return { content: [{ type: 'text', text: 'Your account was removed after 15 days without a tool call. Contact the administrator to recreate it.' }], isError: true }; }
 function recordToolCall(extra: Extra, users: UserStore): boolean {
   const userId = typeof extra.authInfo?.extra?.userId === 'string' ? extra.authInfo.extra.userId : undefined;
   return Boolean(userId && users.recordToolCall(userId));
