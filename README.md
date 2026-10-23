@@ -34,7 +34,7 @@ Each user signs in with Google using OpenID Connect. Before redirecting to Googl
    - `AGENT_RECIPIENT_HMAC_SECRET`: at least 32 random UTF-8 bytes for recipient-address digests.
 7. Fill in the required `GDPR_*` variables with accurate deployment details. Start the service and connect your MCP client using the normal OAuth authorization-code + PKCE flow.
 
-For example, generate independent secrets with `openssl rand -base64 32`. For `IDENTITY_HMAC_SECRET` and `AGENT_RECIPIENT_HMAC_SECRET`, use at least 32 random bytes encoded as a sufficiently long UTF-8 string (for example, a separate hex output from `openssl rand -hex 32`).
+On an existing database, startup removes legacy local-password accounts and their MCP sessions; users must sign in with Google again. For example, generate independent secrets with `openssl rand -base64 32`. For `IDENTITY_HMAC_SECRET` and `AGENT_RECIPIENT_HMAC_SECRET`, use at least 32 random bytes encoded as a sufficiently long UTF-8 string (for example, a separate hex output from `openssl rand -hex 32`).
 
 Google identity is verified using Google's published signing keys, expected issuer, client audience, and a per-transaction nonce. The internal user ID is HMAC-derived from the Google issuer and subject; the raw subject, email address, and profile name are not persisted. The email returned by Google is used transiently to derive the user's `username+agent@gmail.com` alias; only its keyed digest is stored. Google Gmail refresh tokens are encrypted in SQLite with AES-256-GCM. Short-lived access tokens are kept in process memory.
 
@@ -52,7 +52,7 @@ The mocked responses follow Google's documented [messages.list](https://develope
 
 ```sh
 cp .env.example .env
-# fill in secrets and Gmail OAuth values
+# fill in secrets and Google OAuth values
 npm install
 npm run build
 npm test
