@@ -1,4 +1,3 @@
-import { DatabaseSync } from 'node:sqlite';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { SqliteAuthStore, SqliteUserStore } from '../src/storage/sqlite.js';
