@@ -3,7 +3,7 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { AuthStore, UserStore } from './storage/interface.js';
 import { agentAddressFromAccountEmail, recipientDigest } from './recipient-hmac.js';
-import { fetchCimdMetadata, isCimdClientId } from './oauth/cimd.js';
+import { fetchCimdMetadata, isCimdClientId, type CimdMetadata } from './oauth/cimd.js';
 
 type OAuthQuery = Record<string, string | undefined>;
 type Transaction = { nonce: string; oauth: string; expires: number };
@@ -18,6 +18,7 @@ export interface GoogleAuthOptions {
   identityHmacSecret: Buffer;
   users: UserStore;
   authStore: AuthStore;
+  fetchClientMetadata?: (clientId: string) => Promise<CimdMetadata>;
 }
 
 const GOOGLE_AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -64,9 +65,9 @@ function parseOAuth(value: string): OAuthQuery {
 function validOAuth(q: OAuthQuery): boolean {
   return q.response_type === 'code' && Boolean(q.client_id && q.redirect_uri && q.code_challenge) && q.code_challenge_method === 'S256' && Boolean(q.client_id && isCimdClientId(q.client_id));
 }
-async function validateOAuth(q: OAuthQuery): Promise<boolean> {
+async function validateOAuth(q: OAuthQuery, fetchClientMetadata: (clientId: string) => Promise<CimdMetadata>): Promise<boolean> {
   if (!validOAuth(q) || !q.client_id || !q.redirect_uri) return false;
-  try { const metadata = await fetchCimdMetadata(q.client_id); return metadata.redirect_uris.includes(q.redirect_uri); } catch { return false; }
+  try { const metadata = await fetchClientMetadata(q.client_id); return metadata.redirect_uris.includes(q.redirect_uri); } catch { return false; }
 }
 
 export class GoogleAuthService {
@@ -125,12 +126,13 @@ export class GoogleAuthService {
 
   async mount(app: FastifyInstance): Promise<void> {
     const { publicUrl, clientId, clientSecret, redirectUri, users, authStore } = this.options;
+    const fetchClientMetadata = this.options.fetchClientMetadata ?? fetchCimdMetadata;
     app.get('/auth/google/start', async (request, reply) => {
       const query = request.query as { oauth?: string };
       if (!query.oauth || query.oauth.length > 8192) return sendHtml(reply, page('Sign in', '<h1>Sign in unavailable</h1><p>Start again from your MCP client.</p>'), 400);
       let q: OAuthQuery;
       try { q = parseOAuth(query.oauth); } catch { return sendHtml(reply, page('Sign in', '<h1>Invalid sign-in request</h1>'), 400); }
-      if (!(await validateOAuth(q))) return sendHtml(reply, page('Sign in', '<h1>Invalid sign-in request</h1>'), 400);
+      if (!(await validateOAuth(q, fetchClientMetadata))) return sendHtml(reply, page('Sign in', '<h1>Invalid sign-in request</h1>'), 400);
       return sendHtml(reply, page('Sign in with Google',
         '<h1>Sign in with Google</h1><p>Agent Mail MCP uses your Google account to identify your account. Your email address and Google profile name are not stored.</p>' +
         '<div class="notice"><h2>Connect Gmail (read-only)</h2><p>To provide the inbox tools, this service needs permission to read Gmail messages. It will not send, delete, or modify messages. Message content is returned only when your MCP client requests it and may then be processed by that client’s configured AI provider.</p></div>' +
