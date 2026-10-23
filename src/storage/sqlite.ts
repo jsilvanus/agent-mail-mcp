@@ -72,7 +72,7 @@ export class SqliteUserStore implements UserStore {
   }
 
   getUserByEmail(email: string): McpUser | undefined {
-    return this.map(this.db.prepare('SELECT id, name, email, password_hash, created_at FROM users WHERE lower(email) = lower(?)').get(email) as {id:string;name:string;email:string|null;password_hash:string|null;created_at:number}|undefined);
+    return this.map(this.db.prepare('SELECT id, name, email, password_hash, created_at, last_tool_call_at FROM users WHERE lower(email) = lower(?)').get(email) as {id:string;name:string;email:string|null;password_hash:string|null;created_at:number;last_tool_call_at:number|null}|undefined);
   }
 
   updateUser(id: string, patch: {name?:string;email?:string;passwordHash?:string}): McpUser | undefined {
