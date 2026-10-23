@@ -185,6 +185,8 @@ export class GoogleAuthService {
         if (!user) {
           users.createUser({ id, name: 'Google account', agentRecipientHash: digest, createdAt: Date.now() });
           user = users.getUser(id);
+        } else {
+          user = users.updateAgentRecipientHash(id, digest);
         }
         if (!user) throw new Error('Could not create the local account.');
         this.saveCredential(id, tokens.refresh_token);
