@@ -3,6 +3,7 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { AuthStore, UserStore } from './storage/interface.js';
 import { agentAddressFromAccountEmail, recipientDigest } from './recipient-hmac.js';
+import { fetchCimdMetadata, isCimdClientId } from './oauth/cimd.js';
 
 type OAuthQuery = Record<string, string | undefined>;
 type Transaction = { nonce: string; oauth: string; expires: number };
@@ -115,7 +116,7 @@ export class GoogleAuthService {
       if (!query.oauth || query.oauth.length > 8192) return sendHtml(reply, page('Sign in', '<h1>Sign in unavailable</h1><p>Start again from your MCP client.</p>'), 400);
       let q: OAuthQuery;
       try { q = parseOAuth(query.oauth); } catch { return sendHtml(reply, page('Sign in', '<h1>Invalid sign-in request</h1>'), 400); }
-      if (!validOAuth(q)) return sendHtml(reply, page('Sign in', '<h1>Invalid sign-in request</h1>'), 400);
+      if (!(await validateOAuth(q))) return sendHtml(reply, page('Sign in', '<h1>Invalid sign-in request</h1>'), 400);
       return sendHtml(reply, page('Sign in with Google',
         '<h1>Sign in with Google</h1><p>Agent Mail MCP uses your Google account to identify your account. Your email address and Google profile name are not stored.</p>' +
         '<div class="notice"><h2>Connect Gmail (read-only)</h2><p>To provide the inbox tools, this service needs permission to read Gmail messages. It will not send, delete, or modify messages. Message content is returned only when your MCP client requests it and may then be processed by that client’s configured AI provider.</p></div>' +
@@ -129,7 +130,7 @@ export class GoogleAuthService {
       if (!body.oauth || body.gmailConsent !== 'yes') return sendHtml(reply, page('Consent required', '<h1>Consent required</h1><p>Gmail read-only consent is required to continue.</p><p><a href="/auth/google/start?oauth=' + encodeURIComponent(body.oauth ?? '') + '">Try again</a></p>'), 400);
       let q: OAuthQuery;
       try { q = parseOAuth(body.oauth); } catch { return sendHtml(reply, page('Invalid request', '<h1>Invalid request</h1>'), 400); }
-      if (!validOAuth(q)) return sendHtml(reply, page('Invalid request', '<h1>Invalid request</h1>'), 400);
+      if (!(await validateOAuth(q))) return sendHtml(reply, page('Invalid request', '<h1>Invalid request</h1>'), 400);
       for (const [key, value] of transactions) if (value.expires <= Date.now()) transactions.delete(key);
       const state = randomId(), nonce = randomId();
       transactions.set(state, { nonce, oauth: body.oauth, expires: Date.now() + 10 * 60_000 });
@@ -158,7 +159,7 @@ export class GoogleAuthService {
         });
         if (!tokenResponse.ok) throw new Error('Google code exchange failed.');
         const tokens = await tokenResponse.json() as TokenResponse;
-        if (!tokens.id_token || !tokens.refresh_token) throw new Error('Google did not return the required identity and offline Gmail authorization.');
+        if (!tokens.id_token || !tokens.refresh_token || (tokens.scope && !tokens.scope.split(' ').includes('https://www.googleapis.com/auth/gmail.readonly'))) throw new Error('Google did not return the required identity and offline Gmail read-only authorization.');
         const { payload } = await jwtVerify(tokens.id_token, GOOGLE_JWKS, { audience: clientId, issuer: GOOGLE_ISSUERS });
         if (payload.nonce !== transaction.nonce || typeof payload.sub !== 'string' || typeof payload.email !== 'string' || payload.email_verified !== true) {
           throw new Error('Google identity verification failed.');
