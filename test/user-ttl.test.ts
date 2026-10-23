@@ -11,6 +11,7 @@ describe('15-day user inactivity TTL', () => {
     const db = auth.getDatabase();
     const users = new SqliteUserStore(db);
     const cache = new SqliteMetadataCache(db, Buffer.alloc(32, 7));
+    db.exec('CREATE TABLE google_credentials (user_id TEXT PRIMARY KEY, refresh_token_encrypted TEXT NOT NULL, updated_at INTEGER NOT NULL)');
     const now = Date.now();
 
     users.createUser({ id: 'inactive', name: 'Inactive', createdAt: now - 16 * DAY });
@@ -23,6 +24,7 @@ describe('15-day user inactivity TTL', () => {
       token: 'inactive-refresh', clientId: 'client', subject: 'inactive', scope: 'mcp', expires: now + DAY,
     });
     cache.set('inactive', 'message-1', { id: 'message-1', labelIds: ['INBOX'] });
+    db.prepare('INSERT INTO google_credentials (user_id, refresh_token_encrypted, updated_at) VALUES (?, ?, ?)').run('inactive', 'encrypted-refresh-token', now);
 
     assert.equal(users.pruneInactiveUsers(), 1);
     assert.equal(users.getUser('inactive'), undefined);
@@ -30,6 +32,7 @@ describe('15-day user inactivity TTL', () => {
     assert.equal(auth.getRefreshToken('inactive-refresh'), undefined);
     assert.equal(auth.consumeAuthorizationCode('inactive-code'), undefined);
     assert.equal(cache.get('inactive', 'message-1'), undefined);
+    assert.equal(db.prepare('SELECT 1 FROM google_credentials WHERE user_id = ?').get('inactive'), undefined);
 
     db.close();
   });
