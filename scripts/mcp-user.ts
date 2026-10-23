@@ -10,6 +10,8 @@ mkdirSync(dirname(dbPath), { recursive: true });
 const db = new DatabaseSync(dbPath);
 db.exec('CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE, password_hash TEXT, created_at INTEGER NOT NULL);');
 try { db.exec('ALTER TABLE users ADD COLUMN password_hash TEXT'); } catch { /* already exists */ }
+try { db.exec('ALTER TABLE users ADD COLUMN last_tool_call_at INTEGER'); } catch { /* already exists */ }
+try { db.exec('ALTER TABLE users ADD COLUMN agent_recipient_hash TEXT'); } catch { /* already exists */ }
 const users = new SqliteUserStore(db);
 
 const [command, ...args] = process.argv.slice(2);
