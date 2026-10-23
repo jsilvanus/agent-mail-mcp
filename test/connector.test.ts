@@ -7,6 +7,7 @@ type MockMessage = {
   threadId: string;
   internalDate?: string;
   snippet?: string;
+  labelIds?: string[];
   payload: {
     mimeType?: string;
     headers: Array<{ name: string; value: string }>;
@@ -24,6 +25,7 @@ const agentMessage: MockMessage = {
   threadId: 'thread-1',
   internalDate: '1792670400000',
   snippet: 'Hello agent',
+  labelIds: ['SPAM'],
   payload: {
     mimeType: 'text/plain',
     headers: [
@@ -31,6 +33,7 @@ const agentMessage: MockMessage = {
       { name: 'From', value: 'sender@example.net' },
       { name: 'Subject', value: 'Agent task' },
       { name: 'Date', value: 'Thu, 22 Oct 2026 12:00:00 +0000' },
+      { name: 'X-Spam-Status', value: 'Yes, score=7.2' },
     ],
     body: { data: Buffer.from('Hello agent').toString('base64url') },
   },
@@ -90,12 +93,13 @@ function makeGmailMock(messages: MockMessage[]) {
     if (format === 'metadata') {
       assert.deepEqual(url.searchParams.getAll('metadataHeaders'), [
         'To', 'Cc', 'Bcc', 'Delivered-To', 'X-Original-To', 'From', 'Subject', 'Date',
+        'X-Spam-Status', 'X-Spam-Flag', 'X-Google-Spam', 'X-Gm-Spam',
       ]);
       const requested = new Set(url.searchParams.getAll('metadataHeaders').map(value => value.toLowerCase()));
       return Response.json({
         id: message.id,
         threadId: message.threadId,
-        labelIds: ['INBOX'],
+        labelIds: message.labelIds ?? ['INBOX'],
         payload: {
           headers: message.payload.headers.filter(header => requested.has(header.name.toLowerCase())),
         },
@@ -135,6 +139,12 @@ describe('Gmail API mock follows Google REST response shapes', () => {
         time: 'Wed, 22 Oct 2026 12:00:00 +0000',
         sender: 'sender@example.net',
         subject: 'Agent task',
+        spamStatus: 'marked_spam',
+        spamHints: {
+          gmailSpamLabel: true,
+          gmailLabels: ['SPAM'],
+          headers: [{ name: 'x-spam-status', value: 'Yes, score=7.2' }],
+        },
       }]);
       assert.equal(result.nextPageToken, 'page-2');
       assert.equal(result.resultSizeEstimate, 2);
