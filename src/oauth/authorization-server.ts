@@ -119,70 +119,15 @@ export async function mountAuthorizationServer(
     const q = request.query as Record<string,string|undefined>;
     try {
       await validateRequest(q);
-      return sendHtml(reply, loginPage(encodeOAuth(q)));
+      return reply.redirect('/auth/google/start?oauth=' + encodeURIComponent(encodeOAuth(q)));
     } catch {
       return sendHtml(reply, page('Invalid request','<h1>Invalid authorization request</h1>'), [], 400);
     }
   });
 
-  app.post('/oauth/authorize', async (request, reply) => {
-    const body = request.body as Record<string,string|undefined>;
-    if (!body.oauth) {
-      return sendHtml(reply, page('Invalid request','<h1>Invalid authorization request</h1>'), [], 400);
-    }
-    const oauth = body.oauth;
-
-    let q: Record<string,string|undefined>;
-    let metadata: CimdMetadata;
-    try {
-      q = decodeOAuth(oauth);
-      metadata = await validateRequest(q);
-    } catch {
-      return sendHtml(reply, page('Invalid request','<h1>Invalid authorization request</h1>'), [], 400);
-    }
-
-    // Step 1: sign in, then show consent with a login ticket
-    if (body.action === undefined) {
-      if (!body.email || !body.password) {
-        return sendHtml(reply, loginPage(oauth, 'Enter your email and password.'), [], 400);
-      }
-      const user = users.getUserByEmail(body.email);
-      if (!user?.passwordHash || !(await verify(user.passwordHash, body.password))) {
-        return sendHtml(reply, loginPage(oauth, 'Invalid email or password.'), [], 401);
-      }
-      return showConsent(reply, oauth, q, metadata, user);
-    }
-
-    // Step 2: consent decision, authenticated by the login ticket from step 1
-    const user = body.ticket ? await verifyLoginTicket(body.ticket, oauth) : undefined;
-    if (!user) {
-      return sendHtml(reply, loginPage(oauth, 'Your sign-in has expired. Please sign in again.'), [], 401);
-    }
-
-    if (body.action !== 'approve') {
-      const target = new URL(q.redirect_uri!);
-      target.searchParams.set('error','access_denied');
-      target.searchParams.set('iss',issuer);
-      if (q.state) target.searchParams.set('state',q.state);
-      return reply.redirect(target.toString());
-    }
-
-    const code = randomToken();
-    authStore.saveAuthorizationCode({
-      code,
-      clientId: q.client_id!,
-      redirectUri: q.redirect_uri!,
-      challenge: q.code_challenge!,
-      subject: user.id,
-      scope: q.scope ?? 'mcp',
-      expires: Date.now() + 60_000,
-    });
-
-    const target = new URL(q.redirect_uri!);
-    target.searchParams.set('code',code);
-    target.searchParams.set('iss',issuer);
-    if (q.state) target.searchParams.set('state',q.state);
-    return reply.redirect(target.toString());
+  // User authentication is Google OIDC only. Local email/password sign-in is intentionally disabled.
+  app.post('/oauth/authorize', async (_request, reply) => {
+    return sendHtml(reply, page('Google sign-in required', '<h1>Continue with Google</h1><p>Start the authorization flow again and sign in with Google.</p>'), [], 405);
   });
 
   app.post('/oauth/token', async (request, reply) => {
