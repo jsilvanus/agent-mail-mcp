@@ -1,4 +1,5 @@
 import { recipientDigestMatches } from "./recipient-hmac.js";
+import type { SqliteUsageMetrics } from './storage/usage-metrics.js';
 
 export interface ConnectorContext { accessToken?: string; userId?: string; agentRecipientHash?: string }
 export interface SearchRequest { query?: string; page?: number; pageSize?: number }
@@ -46,6 +47,7 @@ function decodeBody(message: GmailMessage): string {
 }
 
 export class GmailConnector implements ApiConnector {
+  constructor(private readonly metrics?: SqliteUsageMetrics) {}
   private accessToken?: string;
   private accessTokenExpiresAt = 0;
 
@@ -73,7 +75,11 @@ export class GmailConnector implements ApiConnector {
     return value.access_token;
   }
 
-  private async api<T>(path: string, params?: URLSearchParams): Promise<T> {
+  private async api<T>(path: string, params?: URLSearchParams, userId?: string): Promise<T> {
+    if (userId && this.metrics) {
+      const endpoint = path === '/messages' ? 'gmail.messages.list' : 'gmail.messages.get';
+      try { this.metrics.recordCall(userId, endpoint); } catch { /* Metrics must never break a Gmail request. */ }
+    }
     const url = new URL(API + path);
     if (params) url.search = params.toString();
     const response = await fetch(url, {
@@ -89,7 +95,7 @@ export class GmailConnector implements ApiConnector {
 
   private readonly discoveredAliases = new Map<string, { address: string; expiresAt: number }>();
 
-  private async discoverAlias(digest: string): Promise<string> {
+  private async discoverAlias(digest: string, userId?: string): Promise<string> {
     const cached = this.discoveredAliases.get(digest);
     if (cached && cached.expiresAt > Date.now()) return cached.address;
     this.discoveredAliases.delete(digest);
@@ -99,10 +105,10 @@ export class GmailConnector implements ApiConnector {
     do {
       const params = new URLSearchParams({ maxResults: "5", q: "in:anywhere", includeSpamTrash: "true" });
       if (pageToken) params.set("pageToken", pageToken);
-      const page = await this.api<{ messages?: Array<{ id: string }>; nextPageToken?: string }>("/messages", params);
+      const page = await this.api<{ messages?: Array<{ id: string }>; nextPageToken?: string }>("/messages", params, userId);
       const candidates = await Promise.all((page.messages ?? []).map(async item => {
         const metadataParams = new URLSearchParams({ format: "metadata", metadataHeaders: "To" });
-        return this.api<GmailMessage>("/messages/" + encodeURIComponent(item.id), metadataParams);
+        return this.api<GmailMessage>("/messages/" + encodeURIComponent(item.id), metadataParams, userId);
       }));
       for (const candidate of candidates) {
         for (const address of toAddresses(candidate)) {
@@ -119,15 +125,15 @@ export class GmailConnector implements ApiConnector {
 
   async search(request: SearchRequest, context: ConnectorContext): Promise<unknown> {
     if (!context.agentRecipientHash) throw new Error("No +agent recipient digest is configured for this user.");
-    const alias = await this.discoverAlias(context.agentRecipientHash);
+    const alias = await this.discoverAlias(context.agentRecipientHash, context.userId);
     const limit = Math.min(100, Math.max(1, Math.trunc(request.pageSize ?? 50)));
     const params = new URLSearchParams({ maxResults: String(limit), q: "in:anywhere to:" + alias, includeSpamTrash: "true" });
     if (request.query) params.set("pageToken", request.query);
-    const page = await this.api<{ messages?: Array<{ id: string }>; nextPageToken?: string; resultSizeEstimate?: number }>("/messages", params);
+    const page = await this.api<{ messages?: Array<{ id: string }>; nextPageToken?: string; resultSizeEstimate?: number }>("/messages", params, context.userId);
     const listed = await Promise.all((page.messages ?? []).map(async item => {
       const metadataParams = new URLSearchParams({ format: "metadata" });
       for (const name of ["To", "From", "Subject", "Date", "X-Spam-Status", "X-Spam-Flag", "X-Google-Spam", "X-Gm-Spam"]) metadataParams.append("metadataHeaders", name);
-      return this.api<GmailMessage>("/messages/" + encodeURIComponent(item.id), metadataParams);
+      return this.api<GmailMessage>("/messages/" + encodeURIComponent(item.id), metadataParams, context.userId);
     }));
     const matches = listed.filter(message => hasAgentRecipient(message, context.agentRecipientHash)).map(message => {
       const h = headers(message);
@@ -155,7 +161,7 @@ export class GmailConnector implements ApiConnector {
   async get(id: string, context: ConnectorContext): Promise<unknown> {
     if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error("Invalid Gmail message ID.");
     if (!context.agentRecipientHash) throw new Error("No +agent recipient digest is configured for this user.");
-    const message = await this.api<GmailMessage>("/messages/" + encodeURIComponent(id), new URLSearchParams({ format: "full" }));
+    const message = await this.api<GmailMessage>("/messages/" + encodeURIComponent(id), new URLSearchParams({ format: "full" }), context.userId);
     if (!hasAgentRecipient(message, context.agentRecipientHash)) throw new Error("Message not found in the +agent inbox.");
     const h = headers(message);
     return {

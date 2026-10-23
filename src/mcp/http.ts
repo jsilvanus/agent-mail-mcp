@@ -6,6 +6,7 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { createMcpServer } from './server.js';
 import type { ApiConnector } from '../connector.js';
 import type { UserStore } from '../storage/interface.js';
+import type { SqliteUsageMetrics } from '../storage/usage-metrics.js';
 import { verifyBearerToken } from '../auth.js';
 
 export interface McpHttpOptions {
@@ -19,6 +20,7 @@ export interface McpHttpOptions {
    * tools, and tools that need OAuth return the `mcp/www_authenticate` hint (see src/mcp/server.ts).
    */
   requireAuth?: boolean;
+  metrics?: SqliteUsageMetrics;
 }
 
 export function wwwAuthenticate(publicUrl: string, error?: string): string {
@@ -62,7 +64,7 @@ export async function mountMcpHttp(app: FastifyInstance, options: McpHttpOptions
       }
     }
 
-    const server = createMcpServer({ connector: options.connector, publicUrl: options.publicUrl, users: options.users });
+    const server = createMcpServer({ connector: options.connector, publicUrl: options.publicUrl, users: options.users, metrics: options.metrics });
     const transport = new StreamableHTTPServerTransport({});
     await server.connect(transport as unknown as Transport);
 
