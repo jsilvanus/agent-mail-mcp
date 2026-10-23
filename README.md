@@ -22,6 +22,12 @@ Input: `messageId` from the listing. Returns message metadata and decoded text b
 
 The Gmail API is queried across all mail (`in:anywhere`, including Spam and Trash); exact recipient validation is performed in code because agent usernames are not known in advance. A page with no matching messages can still include a next-page token; keep paging until it is absent to scan all older mail.
 
+## CI verification
+
+The manually triggered GitHub Actions workflow is [Verify agent-mail-mcp](.github/workflows/verify.yml). Open **Actions → Verify agent-mail-mcp → Run workflow** to run typechecking, unit tests (including a mocked Gmail REST API), and the production build. It intentionally runs only on `workflow_dispatch`, not on pushes or pull requests.
+
+The mocked responses follow Google's documented [messages.list](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list) and [messages.get](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/get) response shapes, including `messages[].id`/`threadId`, `nextPageToken`, `format=metadata`, repeated `metadataHeaders`, and `format=full` payload bodies.
+
 ## Run
 
 ```sh
