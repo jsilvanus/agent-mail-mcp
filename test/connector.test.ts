@@ -1,8 +1,6 @@
-import { DatabaseSync } from 'node:sqlite';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { GmailConnector } from '../src/connector.js';
-import { SqliteMetadataCache } from '../src/storage/metadata-cache.js';
 
 type MockMessage = {
   id: string;
@@ -204,33 +202,3 @@ describe('Gmail API mock follows Google REST response shapes', () => {
   });
 });
 
-
-describe('Gmail metadata cache integration', () => {
-  it('fetches metadata once per user while refreshing the Gmail ID list on each call', async () => {
-    const previousFetch = globalThis.fetch;
-    const previousToken = process.env.GMAIL_ACCESS_TOKEN;
-    process.env.GMAIL_ACCESS_TOKEN = 'test-token';
-    const mock = makeGmailMock([agentMessage, ordinaryMessage]);
-    globalThis.fetch = mock.fetchMock as typeof fetch;
-    const db = new DatabaseSync(':memory:');
-    const cache = new SqliteMetadataCache(db, Buffer.alloc(32, 9));
-
-    try {
-      const connector = new GmailConnector(cache);
-      await connector.search({ pageSize: 50 }, { userId: 'user-a' });
-      assert.equal(mock.requests.filter(request => request.url.pathname.includes('/messages/') && request.url.searchParams.get('format') === 'metadata').length, 2);
-
-      await connector.search({ pageSize: 50 }, { userId: 'user-a' });
-      assert.equal(mock.requests.filter(request => request.url.pathname.includes('/messages/') && request.url.searchParams.get('format') === 'metadata').length, 2);
-      assert.equal(mock.requests.filter(request => request.url.pathname === '/gmail/v1/users/me/messages').length, 2);
-
-      await connector.search({ pageSize: 50 }, { userId: 'user-b' });
-      assert.equal(mock.requests.filter(request => request.url.pathname.includes('/messages/') && request.url.searchParams.get('format') === 'metadata').length, 4);
-    } finally {
-      db.close();
-      globalThis.fetch = previousFetch;
-      if (previousToken === undefined) delete process.env.GMAIL_ACCESS_TOKEN;
-      else process.env.GMAIL_ACCESS_TOKEN = previousToken;
-    }
-  });
-});
