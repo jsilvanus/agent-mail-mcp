@@ -70,9 +70,8 @@ function makeGmailMock(messages: MockMessage[]) {
       return Response.json({ messages: [{id: agentMessage.id, threadId: agentMessage.threadId}], nextPageToken: 'page-2', resultSizeEstimate: 2 });
     }
 
-    const match = url.pathname.match(/^\\/gmail\\/v1\\/users\\/me\\/messages\\/([^/]+)$/);
-    if (!match) return Response.json({ error: { code: 404, message: 'Not Found' } }, { status: 404 });
-    const message = byId.get(decodeURIComponent(match[1]!));
+    const id = decodeURIComponent(url.pathname.split('/').pop() ?? '');
+    const message = byId.get(id);
     if (!message) return Response.json({ error: { code: 404, message: 'Not Found' } }, { status: 404 });
     const format = url.searchParams.get('format');
     if (format === 'metadata') {
