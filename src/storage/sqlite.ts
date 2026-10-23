@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { agentAddressFromAccountEmail, recipientDigest } from '../recipient-hmac.js';
 import { DatabaseSync } from 'node:sqlite';
 import type { AuthStore, AuthorizationCodeRecord, RefreshTokenRecord, McpUser, UserStore } from './interface.js';
 
@@ -10,12 +11,13 @@ export class SqliteAuthStore implements AuthStore {
     mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
     this.db.exec(
-      'CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE, password_hash TEXT, created_at INTEGER NOT NULL, last_tool_call_at INTEGER);' +
+      'CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE, password_hash TEXT, created_at INTEGER NOT NULL, last_tool_call_at INTEGER, agent_recipient_hash TEXT);' +
       'CREATE TABLE IF NOT EXISTS authorization_codes (code TEXT PRIMARY KEY, client_id TEXT NOT NULL, redirect_uri TEXT NOT NULL, challenge TEXT NOT NULL, subject TEXT NOT NULL, scope TEXT NOT NULL, expires INTEGER NOT NULL);' +
       'CREATE TABLE IF NOT EXISTS refresh_tokens (token TEXT PRIMARY KEY, client_id TEXT NOT NULL, subject TEXT NOT NULL, scope TEXT NOT NULL, expires INTEGER NOT NULL);'
     );
     try { this.db.exec('ALTER TABLE users ADD COLUMN password_hash TEXT'); } catch { /* already exists */ }
     try { this.db.exec('ALTER TABLE users ADD COLUMN last_tool_call_at INTEGER'); } catch { /* already exists */ }
+    try { this.db.exec('ALTER TABLE users ADD COLUMN agent_recipient_hash TEXT'); } catch { /* already exists */ }
     // Remove encrypted headers persisted by older versions; current code never writes message headers to SQLite.
     const legacyCache = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'gmail_metadata_cache'").get();
     if (legacyCache) this.db.exec('DELETE FROM gmail_metadata_cache');
@@ -58,20 +60,28 @@ export class SqliteAuthStore implements AuthStore {
 }
 
 export class SqliteUserStore implements UserStore {
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(private readonly db: DatabaseSync) {
+    // Backfill only a keyed digest. The derived +agent address is never stored.
+    const missing = this.db.prepare('SELECT id, email FROM users WHERE agent_recipient_hash IS NULL AND email IS NOT NULL').all() as Array<{id:string;email:string}>;
+    for (const row of missing) {
+      try { this.db.prepare('UPDATE users SET agent_recipient_hash = ? WHERE id = ?').run(recipientDigest(agentAddressFromAccountEmail(row.email)), row.id); }
+      catch (error) { throw new Error('Could not derive agent recipient digest for an existing user. Check account email and AGENT_RECIPIENT_HMAC_SECRET.', { cause: error }); }
+    }
+  }
 
   createUser(user: McpUser): void {
-    this.db.prepare('INSERT INTO users (id, name, email, password_hash, created_at, last_tool_call_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(user.id, user.name, user.email ?? null, user.passwordHash ?? null, user.createdAt, user.lastToolCallAt ?? null);
+    const digest = user.email ? recipientDigest(agentAddressFromAccountEmail(user.email)) : user.agentRecipientHash;
+    this.db.prepare('INSERT INTO users (id, name, email, password_hash, created_at, last_tool_call_at, agent_recipient_hash) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(user.id, user.name, user.email ?? null, user.passwordHash ?? null, user.createdAt, user.lastToolCallAt ?? null, digest ?? null);
   }
 
   listUsers(): McpUser[] {
-    const rows = this.db.prepare('SELECT id, name, email, password_hash, created_at, last_tool_call_at FROM users ORDER BY name, id').all() as Array<{id:string;name:string;email:string|null;password_hash:string|null;created_at:number;last_tool_call_at:number|null}>;
-    return rows.map(row => ({ id: row.id, name: row.name, ...(row.email ? {email:row.email} : {}), ...(row.password_hash ? {passwordHash:row.password_hash} : {}), createdAt: row.created_at, ...(row.last_tool_call_at !== null ? { lastToolCallAt: row.last_tool_call_at } : {}) }));
+    const rows = this.db.prepare('SELECT id, name, email, password_hash, created_at, last_tool_call_at, agent_recipient_hash FROM users ORDER BY name, id').all() as Array<{id:string;name:string;email:string|null;password_hash:string|null;created_at:number;last_tool_call_at:number|null;agent_recipient_hash:string|null}>;
+    return rows.map(row => ({ id: row.id, name: row.name, ...(row.email ? {email:row.email} : {}), ...(row.agent_recipient_hash ? {agentRecipientHash:row.agent_recipient_hash} : {}), ...(row.password_hash ? {passwordHash:row.password_hash} : {}), createdAt: row.created_at, ...(row.last_tool_call_at !== null ? { lastToolCallAt: row.last_tool_call_at } : {}) }));
   }
 
   getUser(id: string): McpUser | undefined {
-    return this.map(this.db.prepare('SELECT id, name, email, password_hash, created_at, last_tool_call_at FROM users WHERE id = ?').get(id) as {id:string;name:string;email:string|null;password_hash:string|null;created_at:number;last_tool_call_at:number|null}|undefined);
+    return this.map(this.db.prepare('SELECT id, name, email, password_hash, created_at, last_tool_call_at, agent_recipient_hash FROM users WHERE id = ?').get(id) as {id:string;name:string;email:string|null;password_hash:string|null;created_at:number;last_tool_call_at:number|null;agent_recipient_hash:string|null}|undefined);
   }
 
   getUserByEmail(email: string): McpUser | undefined {
@@ -81,8 +91,10 @@ export class SqliteUserStore implements UserStore {
   updateUser(id: string, patch: {name?:string;email?:string;passwordHash?:string}): McpUser | undefined {
     const current = this.getUser(id);
     if (!current) return undefined;
-    this.db.prepare('UPDATE users SET name = ?, email = ?, password_hash = ? WHERE id = ?')
-      .run(patch.name ?? current.name, patch.email ?? current.email ?? null, patch.passwordHash ?? current.passwordHash ?? null, id);
+    const nextEmail = patch.email ?? current.email;
+    const digest = nextEmail ? recipientDigest(agentAddressFromAccountEmail(nextEmail)) : current.agentRecipientHash ?? null;
+    this.db.prepare('UPDATE users SET name = ?, email = ?, password_hash = ?, agent_recipient_hash = ? WHERE id = ?')
+      .run(patch.name ?? current.name, nextEmail ?? null, patch.passwordHash ?? current.passwordHash ?? null, digest, id);
     return this.getUser(id);
   }
 
@@ -123,7 +135,7 @@ export class SqliteUserStore implements UserStore {
     }
   }
 
-  private map(row: {id:string;name:string;email:string|null;password_hash:string|null;created_at:number;last_tool_call_at:number|null}|undefined): McpUser|undefined {
-    return row ? {id:row.id,name:row.name,...(row.email ? {email:row.email}:{}),...(row.password_hash ? {passwordHash:row.password_hash}:{}),createdAt:row.created_at,...(row.last_tool_call_at !== null ? {lastToolCallAt:row.last_tool_call_at}: {})} : undefined;
+  private map(row: {id:string;name:string;email:string|null;password_hash:string|null;created_at:number;last_tool_call_at:number|null;agent_recipient_hash:string|null}|undefined): McpUser|undefined {
+    return row ? {id:row.id,name:row.name,...(row.email ? {email:row.email}:{}),...(row.agent_recipient_hash ? {agentRecipientHash:row.agent_recipient_hash}:{}),...(row.password_hash ? {passwordHash:row.password_hash}:{}),createdAt:row.created_at,...(row.last_tool_call_at !== null ? {lastToolCallAt:row.last_tool_call_at}: {})} : undefined;
   }
 }
