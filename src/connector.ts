@@ -108,9 +108,9 @@ export class GmailConnector implements ApiConnector {
       if (context.userId && this.metadataCache) {
         // Cache only metadata returned by Gmail; never cache the full message body.
         this.metadataCache.set(context.userId, item.id, {
-          id: message.id,
-          threadId: message.threadId,
-          internalDate: message.internalDate,
+          ...(message.id ? { id: message.id } : {}),
+          ...(message.threadId ? { threadId: message.threadId } : {}),
+          ...(message.internalDate ? { internalDate: message.internalDate } : {}),
           labelIds: message.labelIds ?? [],
           payload: { headers: message.payload?.headers ?? [] },
         });
