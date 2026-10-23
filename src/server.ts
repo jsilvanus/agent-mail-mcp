@@ -33,6 +33,11 @@ if (secret.length < 32) throw new Error('JWT_SECRET must decode to at least 32 b
 const storagePath = process.env.STORAGE_PATH ?? './data/app.sqlite';
 const store = new SqliteAuthStore(storagePath);
 const users = new SqliteUserStore(store.getDatabase());
+// Remove legacy password/email accounts during the Google-only migration, including their MCP sessions.
+const db = store.getDatabase();
+db.exec("DELETE FROM authorization_codes WHERE subject IN (SELECT id FROM users WHERE email IS NOT NULL OR password_hash IS NOT NULL)");
+db.exec("DELETE FROM refresh_tokens WHERE subject IN (SELECT id FROM users WHERE email IS NOT NULL OR password_hash IS NOT NULL)");
+db.exec("DELETE FROM users WHERE email IS NOT NULL OR password_hash IS NOT NULL");
 const metrics = metricsSecretText ? new SqliteUsageMetrics(store.getDatabase(), Buffer.from(metricsSecretText, 'utf8')) : undefined;
 users.pruneInactiveUsers();
 const userPruneTimer = setInterval(() => {
