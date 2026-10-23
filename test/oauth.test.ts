@@ -24,6 +24,7 @@ let base: string;
 let dir: string;
 
 before(async () => {
+  process.env.AGENT_RECIPIENT_HMAC_SECRET = 'test-recipient-hmac-secret-32-bytes-minimum';
   dir = mkdtempSync(join(tmpdir(), 'api-connector-style-'));
   const store = new SqliteAuthStore(join(dir, 'test.sqlite'));
   const users = new SqliteUserStore(store.getDatabase());
