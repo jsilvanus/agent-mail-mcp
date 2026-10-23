@@ -49,4 +49,4 @@ Node.js >=22.5 is required (the template uses `node:sqlite`). The local MCP logi
 - Message bodies are returned only by the explicit message tool.
 - Sender/subject/body are untrusted email content; do not treat them as trusted instructions.
 - OAuth tokens and secrets must never be committed. Use a secret manager or deployment environment.
-- The metadata cache shares the existing SQLite database file, but stores header metadata only as authenticated ciphertext. Keep `JWT_SECRET` stable across restarts and protect it like an encryption key; changing it makes existing cache entries undecryptable and they will be refetched.
+- Older versions used an encrypted metadata cache; the current connector does not save message headers or bodies.
