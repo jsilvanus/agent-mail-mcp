@@ -51,7 +51,8 @@ export class GmailConnector implements ApiConnector {
   private accessToken?: string;
   private accessTokenExpiresAt = 0;
 
-  private async token(userId?: string): Promise<string> {\n    if (userId && this.perUserAccessToken) return this.perUserAccessToken(userId);
+  private async token(userId?: string): Promise<string> {
+    if (userId && this.perUserAccessToken) return this.perUserAccessToken(userId);
     const staticToken = process.env.GMAIL_ACCESS_TOKEN;
     if (staticToken) return staticToken;
     const clientId = process.env.GMAIL_CLIENT_ID;
