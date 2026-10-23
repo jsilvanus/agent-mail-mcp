@@ -90,6 +90,11 @@ export class SqliteUserStore implements UserStore {
     return this.map(this.db.prepare('SELECT id, name, email, password_hash, created_at, last_tool_call_at, agent_recipient_hash FROM users WHERE lower(email) = lower(?)').get(email) as {id:string;name:string;email:string|null;password_hash:string|null;created_at:number;last_tool_call_at:number|null;agent_recipient_hash:string|null}|undefined);
   }
 
+  updateAgentRecipientHash(id: string, digest: string): McpUser | undefined {
+    this.db.prepare('UPDATE users SET agent_recipient_hash = ? WHERE id = ?').run(digest, id);
+    return this.getUser(id);
+  }
+
   updateUser(id: string, patch: {name?:string;email?:string;passwordHash?:string}): McpUser | undefined {
     const current = this.getUser(id);
     if (!current) return undefined;
