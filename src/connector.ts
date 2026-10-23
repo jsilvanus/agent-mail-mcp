@@ -6,10 +6,8 @@ export interface ApiConnector {
 }
 
 type GmailHeader = { name?: string; value?: string };
-type GmailMessage = {
-  id?: string; threadId?: string; internalDate?: string; snippet?: string;
-  payload?: { headers?: GmailHeader[]; mimeType?: string; body?: { data?: string }; parts?: GmailMessage["payload"][] };
-};
+type GmailPayload = { headers?: GmailHeader[]; mimeType?: string; body?: { data?: string }; parts?: GmailPayload[] };
+type GmailMessage = { id?: string; threadId?: string; internalDate?: string; snippet?: string; payload?: GmailPayload };
 
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
 const AGENT_RECIPIENT = /^[a-z0-9._-]+\+agent@gmail\.com$/i;
