@@ -1,7 +1,6 @@
 import { hash } from '@node-rs/argon2';
 import { buildApp } from './app.js';
 import { SqliteAuthStore, SqliteUserStore } from './storage/sqlite.js';
-import { SqliteMetadataCache } from './storage/metadata-cache.js';
 
 const port = Number(process.env.PORT ?? '5999');
 const publicUrl = process.env.MCP_PUBLIC_URL ?? ('http://localhost:' + port);
@@ -18,8 +17,6 @@ if (secret.length < 32) throw new Error('JWT_SECRET must decode to at least 32 b
 const storagePath = process.env.STORAGE_PATH ?? './data/app.sqlite';
 const store = new SqliteAuthStore(storagePath);
 const users = new SqliteUserStore(store.getDatabase());
-const metadataCache = new SqliteMetadataCache(store.getDatabase(), secret);
-metadataCache.pruneExpired();
 users.pruneInactiveUsers();
 const userPruneTimer = setInterval(() => {
   try { users.pruneInactiveUsers(); }
@@ -40,5 +37,5 @@ if (!bootstrap) {
   db.prepare("INSERT INTO app_settings (key, value) VALUES ('default_user_bootstrap_done', '1')").run();
 }
 
-const app = await buildApp({ publicUrl, jwtSecret: secret, store, users, metadataCache });
+const app = await buildApp({ publicUrl, jwtSecret: secret, store, users });
 await app.listen({ host: process.env.HOST ?? '0.0.0.0', port });
