@@ -7,7 +7,7 @@ export interface ApiConnector {
 
 type GmailHeader = { name?: string; value?: string };
 type GmailPayload = { headers?: GmailHeader[]; mimeType?: string; body?: { data?: string }; parts?: GmailPayload[] };
-type GmailMessage = { id?: string; threadId?: string; internalDate?: string; snippet?: string; payload?: GmailPayload };
+type GmailMessage = { id?: string; threadId?: string; internalDate?: string; snippet?: string; labelIds?: string[]; payload?: GmailPayload };
 
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
 const AGENT_RECIPIENT = /^[a-z0-9.]+\\+agent@gmail\\.com$/i;
@@ -96,16 +96,29 @@ export class GmailConnector implements ApiConnector {
     const page = await this.api<{ messages?: Array<{ id: string }>; nextPageToken?: string; resultSizeEstimate?: number }>("/messages", params);
     const listed = await Promise.all((page.messages ?? []).map(async item => {
       const metadataParams = new URLSearchParams({ format: "metadata" });
-      for (const name of ["To", "Cc", "Bcc", "Delivered-To", "X-Original-To", "From", "Subject", "Date"]) metadataParams.append("metadataHeaders", name);
+      for (const name of ["To", "Cc", "Bcc", "Delivered-To", "X-Original-To", "From", "Subject", "Date", "X-Spam-Status", "X-Spam-Flag", "X-Google-Spam", "X-Gm-Spam"]) metadataParams.append("metadataHeaders", name);
       return await this.api<GmailMessage>("/messages/" + encodeURIComponent(item.id), metadataParams);
     }));
     const matches = listed.filter(hasAgentRecipient).map(message => {
       const h = headers(message);
+      const gmailLabels = message.labelIds ?? [];
+      // Gmail exposes its actual spam-folder classification as the SPAM system label.
+      // Extra spam-related headers are included only when present; Gmail does not guarantee
+      // these headers or expose a numeric spam score through this API.
+      const spamHeaders = Object.entries(h)
+        .filter(([name]) => /^(x-spam-|x-google-spam$|x-gm-spam$)/i.test(name))
+        .map(([name, value]) => ({ name, value }));
       return {
         id: message.id,
         time: h.date ?? (message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null),
         sender: h.from ?? "",
         subject: h.subject ?? "(no subject)",
+        spamStatus: gmailLabels.includes("SPAM") ? "marked_spam" : "not_marked_spam",
+        spamHints: {
+          gmailSpamLabel: gmailLabels.includes("SPAM"),
+          gmailLabels,
+          headers: spamHeaders,
+        },
       };
     });
     return {
