@@ -29,6 +29,7 @@ export interface McpUser {
   email?: string;
   passwordHash?: string;
   createdAt: number;
+  lastToolCallAt?: number;
 }
 
 export interface UserStore {
@@ -38,4 +39,8 @@ export interface UserStore {
   getUserByEmail(email: string): McpUser | undefined;
   updateUser(id: string, patch: { name?: string; email?: string; passwordHash?: string }): McpUser | undefined;
   deleteUser(id: string): boolean;
+  /** Refresh the sliding 15-day inactivity TTL; expired users and their stored state are removed first. */
+  recordToolCall(id: string): boolean;
+  /** Delete users inactive for 15 days, along with their authorization and cached metadata. */
+  pruneInactiveUsers(): number;
 }
