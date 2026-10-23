@@ -20,7 +20,7 @@ Input: `messageId` from the listing. Returns message metadata and decoded text b
 4. Set `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, and `GMAIL_REFRESH_TOKEN` in the runtime environment. A `GMAIL_ACCESS_TOKEN` can be used temporarily for local testing, but it expires.
 5. Configure the MCP server's own `MCP_PUBLIC_URL`, `JWT_SECRET`, and `MCP_DEFAULT_USER_PASSWORD`. Gmail OAuth and MCP-client OAuth are separate credentials and flows.
 
-The local user account expires after 15 days without a tool call and is removed; an administrator must recreate password-based accounts. This is separate from the eight-day metadata-cache TTL.
+The local user account expires after 15 days without a tool call and is removed; an administrator must recreate password-based accounts. Gmail message data is not persisted by the connector.
 
 The Gmail API is queried across all mail (`in:anywhere`, including Spam and Trash); exact recipient validation is performed in code because agent usernames are not known in advance. A page with no matching messages can still include a next-page token; keep paging until it is absent to scan all older mail.
 
