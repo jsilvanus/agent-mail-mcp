@@ -60,7 +60,11 @@ function parseOAuth(value: string): OAuthQuery {
   catch { throw new Error('Invalid MCP OAuth request.'); }
 }
 function validOAuth(q: OAuthQuery): boolean {
-  return q.response_type === 'code' && Boolean(q.client_id && q.redirect_uri && q.code_challenge) && q.code_challenge_method === 'S256';
+  return q.response_type === 'code' && Boolean(q.client_id && q.redirect_uri && q.code_challenge) && q.code_challenge_method === 'S256' && Boolean(q.client_id && isCimdClientId(q.client_id));
+}
+async function validateOAuth(q: OAuthQuery): Promise<boolean> {
+  if (!validOAuth(q) || !q.client_id || !q.redirect_uri) return false;
+  try { const metadata = await fetchCimdMetadata(q.client_id); return metadata.redirect_uris.includes(q.redirect_uri); } catch { return false; }
 }
 function verifyS256(verifier: string, challenge: string): boolean {
   return createHash('sha256').update(verifier).digest('base64url') === challenge;
