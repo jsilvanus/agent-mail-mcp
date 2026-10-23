@@ -23,8 +23,16 @@ metadataCache.pruneExpired();
 users.pruneInactiveUsers();
 const defaultUserId = process.env.MCP_DEFAULT_USER_ID ?? 'demo-user';
 const defaultUserEmail = process.env.MCP_DEFAULT_USER_EMAIL ?? 'demo@example.com';
-if (!users.getUser(defaultUserId)) {
-  users.createUser({ id: defaultUserId, name: 'Agent Mail MCP Admin', email: defaultUserEmail, passwordHash: await hash(defaultUserPassword, { algorithm: 2 }), createdAt: Date.now() });
+// Bootstrap the configured local user only once. Otherwise an expired/deleted user
+// would be recreated on every restart and the inactivity TTL would be ineffective.
+const db = store.getDatabase();
+db.exec('CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+const bootstrap = db.prepare("SELECT value FROM app_settings WHERE key = 'default_user_bootstrap_done'").get() as { value: string } | undefined;
+if (!bootstrap) {
+  if (users.listUsers().length === 0 && !users.getUser(defaultUserId)) {
+    users.createUser({ id: defaultUserId, name: 'Agent Mail MCP Admin', email: defaultUserEmail, passwordHash: await hash(defaultUserPassword, { algorithm: 2 }), createdAt: Date.now() });
+  }
+  db.prepare("INSERT INTO app_settings (key, value) VALUES ('default_user_bootstrap_done', '1')").run();
 }
 
 const app = await buildApp({ publicUrl, jwtSecret: secret, store, users, metadataCache });
