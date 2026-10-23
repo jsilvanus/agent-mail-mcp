@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { AuthStore, UserStore } from './storage/interface.js';
@@ -66,9 +66,6 @@ async function validateOAuth(q: OAuthQuery): Promise<boolean> {
   if (!validOAuth(q) || !q.client_id || !q.redirect_uri) return false;
   try { const metadata = await fetchCimdMetadata(q.client_id); return metadata.redirect_uris.includes(q.redirect_uri); } catch { return false; }
 }
-function verifyS256(verifier: string, challenge: string): boolean {
-  return createHash('sha256').update(verifier).digest('base64url') === challenge;
-}
 
 export class GoogleAuthService {
   private readonly db;
@@ -93,6 +90,10 @@ export class GoogleAuthService {
   }
 
   async accessTokenForUser(userId: string): Promise<string> {
+    if (!this.options.users.getUser(userId)) {
+      this.deleteCredential(userId);
+      throw new Error('This account expired. Sign in again to reconnect Gmail.');
+    }
     const cached = this.accessTokens.get(userId);
     if (cached && cached.expires > Date.now() + 60_000) return cached.token;
     const row = this.db.prepare('SELECT refresh_token_encrypted FROM google_credentials WHERE user_id = ?').get(userId) as { refresh_token_encrypted: string } | undefined;
