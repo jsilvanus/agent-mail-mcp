@@ -95,7 +95,7 @@ function makeGmailMock(messages: MockMessage[]) {
       return Response.json({
         id: message.id,
         threadId: message.threadId,
-        internalDate: message.internalDate,
+        labelIds: ['INBOX'],
         payload: {
           headers: message.payload.headers.filter(header => requested.has(header.name.toLowerCase())),
         },
