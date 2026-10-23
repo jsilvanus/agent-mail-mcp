@@ -23,7 +23,7 @@ function headers(message: GmailMessage): Record<string, string> {
 }
 function toAddresses(message: GmailMessage): string[] {
   const value = headers(message).to ?? "";
-  return value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/gi) ?? [];
+  return value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? [];
 }
 function hasAgentRecipient(message: GmailMessage, digest?: string): boolean {
   if (!digest) return false;
