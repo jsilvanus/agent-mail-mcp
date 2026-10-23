@@ -55,6 +55,8 @@ const googleAuth = new GoogleAuthService({
   users,
   authStore: store,
 }, store.getDatabase());
+const googleTokenPruneTimer = setInterval(() => googleAuth.pruneInMemoryTokens(), 60 * 60 * 1000);
+googleTokenPruneTimer.unref();
 
 const app = await buildApp({ publicUrl, jwtSecret: secret, store, users, gdpr, metrics, metricsAdminToken, googleAuth });
 await app.listen({ host: process.env.HOST ?? '0.0.0.0', port });
