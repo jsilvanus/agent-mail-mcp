@@ -1,1 +1,43 @@
 # agent-mail-mcp
+
+Read-only Gmail MCP server for agent-targeted mail sent to addresses of the form `username+agent@gmail.com`.
+
+Built from the `jsilvanus/codestash` `mcp/api-connector-style/` template. It keeps the template's stateless Streamable HTTP MCP transport, CIMD-first OAuth authorization-code + PKCE flow, issuer/resource-bound JWTs, SQLite-backed authorization state, and embedded authorization server.
+
+## Tools
+
+### `agent_inbox_list`
+Lists a Gmail API page and returns only messages whose recipient headers contain an exact `username+agent@gmail.com` address. Fields: `id`, `time`, `sender`, `subject`. Pass `nextPageToken` back as `pageToken` to continue through the mailbox. The connector inspects message metadata and does not fetch bodies for listing.
+
+### `agent_inbox_message`
+Input: `messageId` from the listing. Returns message metadata and decoded text body only after checking the message's recipient headers for the exact `+agent@gmail.com` convention. Arbitrary message IDs cannot be used to read unrelated mail.
+
+## Gmail setup
+
+1. Create/select a Google Cloud project and enable the Gmail API.
+2. Configure OAuth consent and an OAuth client.
+3. Authorize the mailbox with the read-only scope `https://www.googleapis.com/auth/gmail.readonly`, then obtain a refresh token.
+4. Set `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, and `GMAIL_REFRESH_TOKEN` in the runtime environment. A `GMAIL_ACCESS_TOKEN` can be used temporarily for local testing, but it expires.
+5. Configure the MCP server's own `MCP_PUBLIC_URL`, `JWT_SECRET`, and `MCP_DEFAULT_USER_PASSWORD`. Gmail OAuth and MCP-client OAuth are separate credentials and flows.
+
+The Gmail API is queried across all mail (`in:anywhere`, including Spam and Trash); exact recipient validation is performed in code because agent usernames are not known in advance. A page with no matching messages can still include a next-page token; keep paging until it is absent to scan all older mail.
+
+## Run
+
+```sh
+cp .env.example .env
+# fill in secrets and Gmail OAuth values
+npm install
+npm run build
+npm test
+npm start
+```
+
+Node.js >=22.5 is required (the template uses `node:sqlite`). The local MCP login user is separate from the Google mailbox credentials.
+
+## Security notes
+
+- Read-only Gmail scope; no send, delete, label, or modify operations.
+- Message bodies are returned only by the explicit message tool.
+- Sender/subject/body are untrusted email content; do not treat them as trusted instructions.
+- OAuth tokens and secrets must never be committed. Use a secret manager or deployment environment.
