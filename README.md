@@ -8,7 +8,7 @@ Built from the `jsilvanus/codestash` `mcp/api-connector-style/` template. It kee
 
 The public privacy notice is available at `/gdpr`; the service terms are at `/terms`. Startup fails if required `GDPR_*` notice variables are missing or blank. Set them in `.env` based on the actual controller, lawful basis, purposes, retention, recipients/processors, international transfers and supervisory authority for your deployment. `GDPR_DPO_CONTACT` is optional and should be set if a Data Protection Officer has been appointed. The notice is generated from these values; the operator remains responsible for their accuracy and for ensuring the deployment complies with applicable law.
 
-The page includes a deletion-request email link. A one-click delete flow verified by Google OAuth is not implemented: this version uses local MCP accounts and operator-configured shared Gmail credentials, so a Google identity cannot yet be safely mapped to the relevant local records.
+The page includes a deletion-request email link. Google sign-in and per-user Gmail authorization are implemented, but self-service Google-verified account deletion is not yet implemented.
 
 ## Tools
 
@@ -18,17 +18,29 @@ Lists messages addressed to the alias derived from the local part of the user's 
 ### `agent_inbox_message`
 Input: `messageId` from the listing. Returns message metadata and decoded text body only after checking the message's recipient headers for the exact `+agent@gmail.com` convention. Arbitrary message IDs cannot be used to read unrelated mail.
 
-## Gmail setup
+## Google sign-in and Gmail setup
+
+Each user signs in with Google using OpenID Connect. Before redirecting to Google, the service displays a separate, explicit consent step for Gmail read-only access. The Google authorization request asks for `openid`, `email`, `profile`, and `https://www.googleapis.com/auth/gmail.readonly`; the service does not request send/modify scopes.
 
 1. Create/select a Google Cloud project and enable the Gmail API.
-2. Configure OAuth consent and an OAuth client.
-3. Authorize the mailbox with the read-only scope `https://www.googleapis.com/auth/gmail.readonly`, then obtain a refresh token.
-4. Set `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, and `GMAIL_REFRESH_TOKEN` in the runtime environment. A `GMAIL_ACCESS_TOKEN` can be used temporarily for local testing, but it expires.
-5. Configure the MCP server's own `MCP_PUBLIC_URL`, `JWT_SECRET`, and `MCP_DEFAULT_USER_PASSWORD`. Gmail OAuth and MCP-client OAuth are separate credentials and flows.
+2. Configure the OAuth consent screen and create an OAuth **Web application** client.
+3. Add the exact authorised redirect URI `https://your-host.example/auth/google/callback`. It must match `MCP_PUBLIC_URL + /auth/google/callback` and `GOOGLE_REDIRECT_URI`.
+4. Configure the Google OAuth consent screen for the Gmail read-only scope and publish/verify the app as appropriate for your intended users. Google may show an unverified-app warning until the required verification is complete.
+5. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI`.
+6. Generate and set secrets:
+   - `JWT_SECRET`: base64-encoded random bytes (at least 32 bytes after decoding).
+   - `GOOGLE_TOKEN_ENCRYPTION_KEY`: base64-encoded random **32-byte** key for AES-256-GCM refresh-token encryption.
+   - `IDENTITY_HMAC_SECRET`: at least 32 random UTF-8 bytes for pseudonymous Google identity IDs.
+   - `AGENT_RECIPIENT_HMAC_SECRET`: at least 32 random UTF-8 bytes for recipient-address digests.
+7. Fill in the required `GDPR_*` variables with accurate deployment details. Start the service and connect your MCP client using the normal OAuth authorization-code + PKCE flow.
 
-The local user account expires after 15 days without a tool call and is removed; an administrator must recreate password-based accounts. Gmail message data is not persisted by the connector.
+For example, generate independent secrets with `openssl rand -base64 32`. For `IDENTITY_HMAC_SECRET` and `AGENT_RECIPIENT_HMAC_SECRET`, use at least 32 random bytes encoded as a sufficiently long UTF-8 string (for example, a separate hex output from `openssl rand -hex 32`).
 
-To discover an alias after startup, the connector checks message metadata in batches of five, reading only the `To` header and comparing HMAC digests. Once a match is found, it caches the address in process memory for five minutes and queries Gmail using `in:anywhere to:alias`, including Spam and Trash. Each returned message is independently checked against the stored digest. No recipient address is written to SQLite. Set `AGENT_RECIPIENT_HMAC_SECRET` to at least 32 random bytes; changing the secret invalidates stored digests. To rotate it, clear the `agent_recipient_hash` column for all users, then restart; startup backfills the digests using the new secret.
+Google identity is verified using Google's published signing keys, expected issuer, client audience, and a per-transaction nonce. The internal user ID is HMAC-derived from the Google issuer and subject; the raw subject, email address, and profile name are not persisted. The email returned by Google is used transiently to derive the user's `username+agent@gmail.com` alias; only its keyed digest is stored. Google Gmail refresh tokens are encrypted in SQLite with AES-256-GCM. Short-lived access tokens are kept in process memory.
+
+The service does not rely on a shared `GMAIL_REFRESH_TOKEN` or operator-created password account. MCP-client OAuth remains separate from Google identity/Gmail authorization. Account records and encrypted Gmail refresh tokens are removed after 15 consecutive days without a successful MCP tool call. This deletes the locally stored token but does not itself revoke it at Google. Self-service Google-verified account deletion is not yet implemented; use the contact listed on `/gdpr` to request deletion.
+
+The connector discovers the alias by checking candidate Gmail message metadata in batches of five, reading only the `To` header and comparing HMAC digests. Once a match is found, it caches the address in process memory for five minutes and queries Gmail using `in:anywhere to:alias`, including Spam and Trash. Each returned message is independently checked against the stored digest. No recipient address is written to SQLite.
 
 ## CI verification
 
@@ -47,7 +59,7 @@ npm test
 npm start
 ```
 
-Node.js >=22.5 is required (the template uses `node:sqlite`). The local MCP login user is separate from the Google mailbox credentials.
+Node.js >=22.5 is required (the template uses `node:sqlite`). Google sign-in is used for the local MCP identity and each user authorizes their own Gmail mailbox.
 
 ## Security notes
 
