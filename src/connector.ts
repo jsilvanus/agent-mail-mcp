@@ -97,11 +97,9 @@ export class GmailConnector implements ApiConnector {
     params.set("includeSpamTrash", "true");
     const page = await this.api<{ messages?: Array<{ id: string }>; nextPageToken?: string; resultSizeEstimate?: number }>("/messages", params);
     const listed = await Promise.all((page.messages ?? []).map(async item => {
-      const meta = await this.api<GmailMessage>("/messages/" + encodeURIComponent(item.id), new URLSearchParams({
-        format: "metadata",
-        metadataHeaders: "To",
-      }));
-      return meta;
+      const metadataParams = new URLSearchParams({ format: "metadata" });
+      for (const name of ["To", "Cc", "Bcc", "Delivered-To", "X-Original-To"]) metadataParams.append("metadataHeaders", name);
+      return await this.api<GmailMessage>("/messages/" + encodeURIComponent(item.id), metadataParams);
     }));
     const matches = listed.filter(hasAgentRecipient).map(message => {
       const h = headers(message);
