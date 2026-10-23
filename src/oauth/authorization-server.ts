@@ -1,12 +1,9 @@
-import { createHash } from 'node:crypto';
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { verify } from '@node-rs/argon2';
-import { SignJWT, jwtVerify } from 'jose';
-import type { AuthStore, McpUser, UserStore } from '../storage/interface.js';
+import type { AuthStore, UserStore } from '../storage/interface.js';
 import { fetchCimdMetadata, isCimdClientId, type CimdMetadata } from './cimd.js';
 import { randomToken, verifyS256 } from './pkce.js';
 import { issueAccessToken } from './jwt.js';
-import { contentSecurityPolicy, redirectSource } from '../csp.js';
+import { contentSecurityPolicy } from '../csp.js';
 
 export type { CimdMetadata };
 
@@ -14,8 +11,6 @@ export interface AuthorizationServerOptions {
   /** Resolves a CIMD client_id to its metadata. Replaceable in tests. */
   fetchClientMetadata?: (clientId: string) => Promise<CimdMetadata>;
 }
-
-const LOGIN_TICKET_TTL = '10m';
 
 function escapeHtml(value: string): string {
   return value.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'","&#39;");
@@ -29,41 +24,13 @@ function page(title: string, body: string): string {
     '</main></body></html>';
 }
 
-function loginPage(oauth: string, error?: string): string {
-  return page('MCP sign in',
-    '<h1>Sign in</h1><p>Sign in to authorize this MCP client to access the connector.</p>' +
-    (error ? '<p class="error">' + escapeHtml(error) + '</p>' : '') +
-    '<form method="post" action="/oauth/authorize">' +
-    '<input type="hidden" name="oauth" value="' + escapeHtml(oauth) + '">' +
-    '<label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" required autofocus>' +
-    '<label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required>' +
-    '<button type="submit">Sign in</button></form>');
-}
-
-function consentPage(oauth: string, ticket: string, userName: string, clientName: string): string {
-  return page('Authorize MCP client',
-    '<h1>Authorize MCP client</h1><p><strong>' + escapeHtml(clientName) +
-    '</strong> wants access to this connector as <strong>' + escapeHtml(userName) +
-    '</strong>.</p><form method="post" action="/oauth/authorize">' +
-    '<input type="hidden" name="oauth" value="' + escapeHtml(oauth) + '">' +
-    '<input type="hidden" name="ticket" value="' + escapeHtml(ticket) + '">' +
-    '<button type="submit" name="action" value="approve">Approve</button>' +
-    '<button class="secondary" type="submit" name="action" value="deny">Deny</button></form>');
-}
-
 function encodeOAuth(query: Record<string,string|undefined>): string {
   return Buffer.from(new URLSearchParams(Object.entries(query).filter((entry): entry is [string,string] => typeof entry[1] === 'string')).toString()).toString('base64url');
-}
-
-function decodeOAuth(value: string): Record<string,string|undefined> {
-  return Object.fromEntries(new URLSearchParams(Buffer.from(value,'base64url').toString('utf8')));
 }
 
 function sendHtml(reply: FastifyReply, html: string, formAction: string[] = [], status = 200) {
   return reply.code(status).header('Content-Security-Policy', contentSecurityPolicy(formAction)).header('Cache-Control', 'no-store').type('text/html').send(html);
 }
-
-const oauthHash = (oauth: string) => createHash('sha256').update(oauth).digest('base64url');
 
 export async function mountAuthorizationServer(
   app: FastifyInstance,
@@ -75,7 +42,6 @@ export async function mountAuthorizationServer(
   options: AuthorizationServerOptions = {},
 ): Promise<void> {
   const fetchClientMetadata = options.fetchClientMetadata ?? fetchCimdMetadata;
-  const ticketAudience = issuer + '/oauth/authorize';
 
   async function validateRequest(query: Record<string,string|undefined>) {
     if (query.response_type !== 'code' || !query.client_id || !query.redirect_uri || !query.code_challenge || query.code_challenge_method !== 'S256') {
@@ -85,34 +51,6 @@ export async function mountAuthorizationServer(
     const metadata = await fetchClientMetadata(query.client_id);
     if (!metadata.redirect_uris.includes(query.redirect_uri)) throw new Error('Invalid redirect_uri');
     return metadata;
-  }
-
-  /** Signed, short-lived proof that the user signed in for this authorization request. */
-  function issueLoginTicket(user: McpUser, oauth: string): Promise<string> {
-    return new SignJWT({ typ: 'login', oauth: oauthHash(oauth) })
-      .setProtectedHeader({ alg: 'HS256' })
-      .setSubject(user.id)
-      .setIssuer(issuer)
-      .setAudience(ticketAudience)
-      .setIssuedAt()
-      .setExpirationTime(LOGIN_TICKET_TTL)
-      .sign(secret);
-  }
-
-  async function verifyLoginTicket(ticket: string, oauth: string): Promise<McpUser | undefined> {
-    try {
-      const { payload } = await jwtVerify(ticket, secret, { algorithms: ['HS256'], issuer, audience: ticketAudience });
-      if (payload.typ !== 'login' || payload.oauth !== oauthHash(oauth) || typeof payload.sub !== 'string') return undefined;
-      return users.getUser(payload.sub);
-    } catch {
-      return undefined;
-    }
-  }
-
-  async function showConsent(reply: FastifyReply, oauth: string, q: Record<string,string|undefined>, metadata: CimdMetadata, user: McpUser) {
-    const ticket = await issueLoginTicket(user, oauth);
-    // Approve/deny redirect to the client: form-action must allow its redirect_uri, or browsers block the redirect.
-    return sendHtml(reply, consentPage(oauth, ticket, user.name, metadata.client_name ?? q.client_id!), [redirectSource(q.redirect_uri!)]);
   }
 
   app.get('/oauth/authorize', async (request, reply) => {
