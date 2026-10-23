@@ -6,7 +6,7 @@ Built from the `jsilvanus/codestash` `mcp/api-connector-style/` template. It kee
 
 ## Privacy and GDPR
 
-The public privacy notice is available at `/gdpr`. Startup fails if required `GDPR_*` notice variables are missing or blank. Set them in `.env` based on the actual controller, lawful basis, purposes, retention, recipients/processors, international transfers and supervisory authority for your deployment. `GDPR_DPO_CONTACT` is optional and should be set if a Data Protection Officer has been appointed. The notice is generated from these values; the operator remains responsible for their accuracy and for ensuring the deployment complies with applicable law.
+The public privacy notice is available at `/gdpr`; the service terms are at `/terms`. Startup fails if required `GDPR_*` notice variables are missing or blank. Set them in `.env` based on the actual controller, lawful basis, purposes, retention, recipients/processors, international transfers and supervisory authority for your deployment. `GDPR_DPO_CONTACT` is optional and should be set if a Data Protection Officer has been appointed. The notice is generated from these values; the operator remains responsible for their accuracy and for ensuring the deployment complies with applicable law.
 
 The page includes a deletion-request email link. A one-click delete flow verified by Google OAuth is not implemented: this version uses local MCP accounts and operator-configured shared Gmail credentials, so a Google identity cannot yet be safely mapped to the relevant local records.
 
@@ -56,3 +56,12 @@ Node.js >=22.5 is required (the template uses `node:sqlite`). The local MCP logi
 - Sender/subject/body are untrusted email content; do not treat them as trusted instructions.
 - OAuth tokens and secrets must never be committed. Use a secret manager or deployment environment.
 - Older versions used an encrypted metadata cache; the current connector does not save message headers or bodies.
+
+
+## Usage metrics
+
+When configured, the service records minimal pseudonymous usage counters in the same SQLite database. It tracks total accounts created, current account count, and calls to each MCP tool per pseudonymous account. Account IDs are transformed with HMAC-SHA-256 using `METRICS_HMAC_SECRET`; metrics do not store email addresses, recipient aliases, message IDs, subjects, arguments, or message content. Per-account rows are still pseudonymous rather than strictly anonymous, because stable counters can be correlated over time.
+
+Set `METRICS_HMAC_SECRET` to at least 32 random bytes and `METRICS_ADMIN_TOKEN` to a separate random secret of at least 32 characters. Query `GET /admin/metrics` with the `X-Metrics-Token` header. The route is not enabled unless both values are configured. The response includes aggregate calls per tool and per-user pseudonymous counters with last-call timestamps. Keep this endpoint private; do not expose its response publicly. Metrics are intentionally retained when a user account expires so that long-term usage trends can be measured. If you need to erase usage history too, remove the corresponding rows from `usage_metrics` (or clear the table to reset all usage history).
+
+The terms page is a baseline template, not legal advice. The operator should review it for the actual deployment and applicable consumer/data-protection law before production.
