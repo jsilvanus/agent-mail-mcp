@@ -30,7 +30,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   await mountGdprPage(app, options.gdpr);
   await mountTermsPage(app);
   await mountAuthorizationServer(app, options.publicUrl, resource, options.jwtSecret, options.store, options.users, options.authorization);
-  await mountMcpHttp(app, { connector: new GmailConnector(), users: options.users, metrics: options.metrics, publicUrl: options.publicUrl, jwtSecret: options.jwtSecret, resource });
+  await mountMcpHttp(app, { connector: new GmailConnector(options.metrics), users: options.users, metrics: options.metrics, publicUrl: options.publicUrl, jwtSecret: options.jwtSecret, resource });
   if (options.metrics && options.metricsAdminToken) {
     app.get('/admin/metrics', async (request, reply) => {
       const supplied = request.headers['x-metrics-token'];
