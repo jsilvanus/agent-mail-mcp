@@ -106,7 +106,22 @@ export class SqliteUserStore implements UserStore {
   }
 
   deleteUser(id: string): boolean {
-    return this.db.prepare('DELETE FROM users WHERE id = ?').run(id).changes > 0;
+    const tableExists = (name: string) => Boolean(this.db.prepare(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?"
+    ).get(name));
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('DELETE FROM authorization_codes WHERE subject = ?').run(id);
+      this.db.prepare('DELETE FROM refresh_tokens WHERE subject = ?').run(id);
+      if (tableExists('gmail_metadata_cache')) this.db.prepare('DELETE FROM gmail_metadata_cache WHERE user_id = ?').run(id);
+      if (tableExists('google_credentials')) this.db.prepare('DELETE FROM google_credentials WHERE user_id = ?').run(id);
+      const deleted = this.db.prepare('DELETE FROM users WHERE id = ?').run(id).changes > 0;
+      this.db.exec('COMMIT');
+      return deleted;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   recordToolCall(id: string): boolean {
