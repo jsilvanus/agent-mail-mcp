@@ -25,12 +25,12 @@ switch (command) {
     if (!name || !password) throw new Error('create requires --name and --password');
     const id = value('--id') ?? randomUUID();
     users.createUser({ id, name, ...(value('--email') ? {email:value('--email')} : {}), passwordHash: await hashPassword(password), createdAt: Date.now() });
-    const {passwordHash: _, ...safe} = users.getUser(id)!;
+    const {passwordHash: _, agentRecipientHash: __, ...safe} = users.getUser(id)!;
     console.log(JSON.stringify(safe, null, 2));
     break;
   }
   case 'list': {
-    console.log(JSON.stringify(users.listUsers().map(({passwordHash:_, ...user}) => user), null, 2));
+    console.log(JSON.stringify(users.listUsers().map(({passwordHash:_, agentRecipientHash:__, ...user}) => user), null, 2));
     break;
   }
   case 'get': {
@@ -38,7 +38,7 @@ switch (command) {
     if (!id) throw new Error('get requires <id>');
     const user = users.getUser(id);
     if (!user) { console.log('null'); break; }
-    const {passwordHash:_, ...safe} = user;
+    const {passwordHash:_, agentRecipientHash:__, ...safe} = user;
     console.log(JSON.stringify(safe, null, 2));
     break;
   }
