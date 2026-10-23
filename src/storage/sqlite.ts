@@ -73,7 +73,8 @@ export class SqliteUserStore implements UserStore {
     const digest = user.email ? recipientDigest(agentAddressFromAccountEmail(user.email)) : user.agentRecipientHash;
     this.db.prepare('INSERT INTO users (id, name, email, password_hash, created_at, last_tool_call_at, agent_recipient_hash) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(user.id, user.name, user.email ?? null, user.passwordHash ?? null, user.createdAt, user.lastToolCallAt ?? null, digest ?? null);
-    this.db.prepare("UPDATE usage_totals SET value = value + 1 WHERE key = 'accounts_created'").run();
+    const metricsTable = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'usage_totals'").get();
+    if (metricsTable) this.db.prepare("UPDATE usage_totals SET value = value + 1 WHERE key = 'accounts_created'").run();
   }
 
   listUsers(): McpUser[] {
