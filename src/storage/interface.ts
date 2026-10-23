@@ -27,6 +27,8 @@ export interface McpUser {
   id: string;
   name: string;
   email?: string;
+  /** HMAC of the derived username+agent@gmail.com address; never the address itself. */
+  agentRecipientHash?: string;
   passwordHash?: string;
   createdAt: number;
   lastToolCallAt?: number;
