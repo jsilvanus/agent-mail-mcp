@@ -1,12 +1,10 @@
 {
-  "name": "@codestash/api-connector-style",
-  "version": "0.1.0",
+  "name": "agent-mail-mcp",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "Reusable MCP wrapper pattern for HTTP API connectors.",
-  "engines": {
-    "node": ">=22.5"
-  },
+  "description": "Read-only Gmail MCP inbox for username+agent@gmail.com targeted email.",
+  "engines": { "node": ">=22.5" },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -23,9 +21,5 @@
     "jose": "^6.2.12",
     "zod": "^4.6.5"
   },
-  "devDependencies": {
-    "@types/node": "^22.10.5",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.3"
-  }
+  "devDependencies": { "@types/node": "^22.10.5", "tsx": "^4.19.2", "typescript": "^5.7.3" }
 }
